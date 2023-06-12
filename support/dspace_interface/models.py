@@ -9,84 +9,13 @@ when creating, updating, retrieving and deleting DSpace Objects.
 
 @author Kim Shepherd <kim@shepherd.nz>
 """
-import code
 import json
-import logging
 
-import requests
-from requests import Request
-import os
-from uuid import UUID
-
-__all__ = ['DSpaceObject', 'HALResource', 'ExternalDataObject', 'SimpleDSpaceObject', 'Community',
+__all__ = ['DSpaceObject', 'SimpleDSpaceObject', 'Community',
            'Collection', 'Item', 'Bundle', 'Bitstream', 'User', 'Group']
 
 
-class HALResource:
-    """
-    Base class to represent HAL+JSON API resources
-    """
-    links = {}
-    type = None
-
-    def __init__(self, api_resource=None):
-        """
-        Default constructor
-        @param api_resource: optional API resource (JSON) from a GET response or successful POST can populate instance
-        """
-        if api_resource is not None:
-            if 'type' in api_resource:
-                self.type = api_resource['type']
-            if '_links' in api_resource:
-                self.links = api_resource['_links'].copy()
-            else:
-                self.links = {'self': {'href': None}}
-
-
-class ExternalDataObject(HALResource):
-    """
-    Generic External Data Object as configured in DSpace's external data providers framework
-    """
-    id = None
-    display = None
-    value = None
-    externalSource = None
-    metadata = {}
-
-    def __init__(self, api_resource=None):
-        """
-        Default constructor
-        @param api_resource: optional API resource (JSON) from a GET response or successful POST can populate instance
-        """
-        super().__init__(api_resource)
-
-        self.metadata = dict()
-
-        if api_resource is not None:
-            if 'id' in api_resource:
-                self.id = api_resource['id']
-            if 'display' in api_resource:
-                self.display = api_resource['display']
-            if 'value' in api_resource:
-                self.value = api_resource['value']
-            if 'externalSource' in api_resource:
-                self.externalSource = api_resource['externalSource']
-            if 'metadata' in api_resource:
-                self.metadata = api_resource['metadata'].copy()
-
-    def get_metadata_values(self, field):
-        """
-        Return metadata values as simple list of strings
-        @param field: DSpace field, eg. dc.creator
-        @return: list of strings
-        """
-        values = list()
-        if field in self.metadata:
-            values = self.metadata[field]
-        return values
-
-
-class DSpaceObject(HALResource):
+class DSpaceObject:
     """
     Base class to represent DSpaceObject API resources
     The variables here are present in an _embedded response and the ones required for POST / PUT / PATCH
@@ -97,6 +26,7 @@ class DSpaceObject(HALResource):
     name = None
     handle = None
     metadata = {}
+    links = {}
     lastModified = None
     type = None
     parent = None
@@ -106,7 +36,7 @@ class DSpaceObject(HALResource):
         Default constructor
         @param api_resource: optional API resource (JSON) from a GET response or successful POST can populate instance
         """
-        super().__init__(api_resource)
+
         self.type = None
         self.metadata = dict()
 
@@ -124,11 +54,11 @@ class DSpaceObject(HALResource):
             if 'handle' in api_resource:
                 self.handle = api_resource['handle']
             if 'metadata' in api_resource:
-                self.metadata = api_resource['metadata'].copy()
+                self.metadata = api_resource['metadata']
             # Python interprets _ prefix as private so for now, renaming this and handling it separately
             # alternatively - each item could implement getters, or a public method to return links
             if '_links' in api_resource:
-                self.links = api_resource['_links'].copy()
+                self.links = api_resource['_links']
             else:
                 # TODO - write 'construct self URI method'... all we need is type, UUID and some mapping of type
                 #  to the URI type segment eg community -> communities
@@ -139,7 +69,7 @@ class DSpaceObject(HALResource):
         Add metadata to a DSO. This is performed on the local object only, it is not an API operation (see patch)
         This is useful when constructing new objects for ingest.
         When doing simple changes like "retrieve a DSO, add some metadata, update" then it is best to use a patch
-        operation, not this clas method. See
+        operation, not this class method. See
         :param field:
         :param value:
         :param language:
@@ -217,7 +147,6 @@ class Item(SimpleDSpaceObject):
     inArchive = False
     discoverable = False
     withdrawn = False
-    metadata = dict()
 
     def __init__(self, api_resource=None, dso=None):
         """

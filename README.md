@@ -1,71 +1,126 @@
-# DSpace Python REST Client Library
-This client library allows Python 3 scripts (Python 2 probably compatible but not officially supported) to interact with
-DSpace 7+ repositories, using the DSpace REST API.
+[![Test dspace on dev-5](https://github.com/dataquest-dev/dspace-blackbox-testing/actions/workflows/test.yml/badge.svg)](https://github.com/dataquest-dev/dspace-blackbox-testing/actions/workflows/test.yml)
 
-This library is a work in progress and so far offers basic create, update, retrieve functionality for
-Community, Collection, Bundle, Item, Bitstream, Group and User (EPerson) objects.
+# Dspace-python-api
+used for blackbox testing, data-ingestion procedures
 
-Help with extending the scope and improving the code is always welcome!
+# How to migrate CLARIN-DSpace5.* to CLARIN-DSpace7.*
+### Prerequisites:
+- Installed CLARIN-DSpace7.*. with running database, solr, tomcat
 
-PyPI homepage: https://pypi.org/project/dspace-rest-client/
+### Steps:
+1. Clone python-api: https://github.com/dataquest-dev/dspace-python-api (branch `main`) and dpace://https://github.com/dataquest-dev/DSpace (branch `dtq-dev`)
 
-## Requirements
-* Python 3.x (developed using Python 3.8.5)
-* Python Requests module (see `requirements.txt`)
-* Working DSpace 7 repository with an accessible REST API
+***
+2. Get database dump (old CLARIN-DSpace) and unzip it into the `<PSQL_PATH>/bin` (or wherever you want)
 
-## Installation
-To install with pip: 
-`pip install dspace_rest_client`
+***
+3. Create CLARIN-DSpace5.* databases (dspace, utilities) from dump.
+> // clarin-dspace database
+> - `createdb --username=postgres --owner=dspace --encoding=UNICODE clarin-dspace` // create a clarin database with owner
 
-(or `pip3` or `python -m pip` as appropriate to your environment)
+> // It run on second try:
+> - `psql -U postgres clarin-dspace < <CLARIN_DUMP_FILE_PATH>`
 
-To install manually, clone this repository and install the requirements:
-```commandline
-git clone https://github.com/the-library-code/dspace-rest-python.git
-pip install -r requirements.txt
-```
+> // clarin-utilities database
+> - `createdb --username=postgres --owner=dspace --encoding=UNICODE clarin-utilities` // create a utilities database with owner
+
+> // It run on second try:
+> - `psql -U postgres clarin-utilities < <UTILITIES_DUMP_FILE_PATH>`
+
+***
+4. Recreate your local CLARIN-DSpace7.* database **NOTE: all data will be deleted**
+- Install again the database following the official tutorial steps: https://wiki.lyrasis.org/display/DSDOC7x/Installing+DSpace#InstallingDSpace-PostgreSQL11.x,12.xor13.x(withpgcryptoinstalled)
+- Or try to run these commands in the <PSQL_PATH>/bin:
+> - `createdb --username=postgres --owner=dspace --encoding=UNICODE dspace` // create database
+> - `psql --username=postgres dspace -c "CREATE EXTENSION pgcrypto;"` // Add pgcrypto extension
+> > If it throws warning that `-c` parameter was ignored, just write a `CREATE EXTENSION pgcrypto;` command in the database cmd.
+> > CREATE EXTENSION pgcrypto;
+![image](https://user-images.githubusercontent.com/90026355/228528044-f6ad178c-f525-4b15-b6cc-03d8d94c8ccc.png)
+ 
+
+> // Now the clarin database for DSpace7 should be created
+> - Run the database by the command: `pg_ctl start -D "<PSQL_PATH>\data\"`
+
+***
+5. (Your DSpace project must be installed) Go to the `dspace/bin` and run the command `dspace database migrate force` // force because of local types
+**NOTE:** `dspace database migrate force` creates default database data that may be not in database dump, so after migration, some tables may have more data than the database dump. Data from database dump that already exists in database is not migrated.
+
+***
+6. Create an admin by running the command `dspace create-administrator` in the `dspace/bin`
+
+***
+7. Prepare `dspace-python-api` project for migration
+**IMPORTANT:** If `data` folder doesn't exist in the project, create it
+
+Update `const.py`
+- `user = "<ADMIN_NAME>"`
+- `password = "<ADMIN_PASSWORD>"`
+
+- `# http or https`
+- `use_ssl = False`
+- `host = "<YOUR_SERVER>" e.g., localhost`
+- `# host = "dev-5.pc"`
+- `fe_port = "<YOUR_FE_PORT>"`
+- `# fe_port = ":4000"`
+- `be_port = "<YOUR_BE_PORT>"`
+- `# be_port = ":8080"`
+- `be_location = "/server/"`
+
+Update `migration_const.py`
+- `REPOSITORY_PATH = "<PROJECT_PATH>"`
+- `DATA_PATH = REPOSITORY_PATH + "data/"`
+
+***
+8. Create JSON files from the database tables. **NOTE: You must do it for both databases `clarin-dspace` and `clarin-utilities`** (JSON files are stored in the `data` folder)
+- Go to `dspace-python-api` in the cmd
+- Run `pip install -r requirements.txt`
+- Run `python data_migration.py <DATABSE NAME> <HOST> postgres <PASSWORD FOR POSTGRES>` e.g., `python data_migration.py clarin-dspace localhost postgres pass` (arguments for database connection - database, host, user, password) for the BOTH databases // NOTE there must exist data folder in the project structure
+
+***
+9. Copy `assetstore` from dspace5 to dspace7 (for bitstream import). `assetstore` is in the folder where you have installed DSpace `dspace/assetstore`.
+
+***
+10. Import data from the json files (python-api/data/*) into dspace database (CLARIN-DSpace7.*)
+- **NOTE:** database must be up to date (`dspace database migrate force` must be called in the `dspace/bin`)
+- **NOTE:** dspace server must be running
+- From the `dspace-python-api` run command `python dspace_import.py`
+
+***
+## !!!Migration notes:!!!
+- The values of table attributes that describe the last modification time of dspace object (for example attribute `last_modified` in table `Item`) have a value that represents the time when that object was migrated and not the value from migrated database dump.
 
 
-## Usage
-After installing dependencies, you're ready to run the script.
-You can either pass the base API URL to the DSpaceClient() constructor or set them as environment variables.
 
-Some environment variables can be used when setting up the REST client connection.
-`DSPACE_API_ENDPOINT` is the base URL of your endpoint eg. http://localhost:8080/server
-`DSPACE_API_USERNAME` and `DSPACE_API_PASSWORD` are credentials to use for authentication.
+## How to write new tests
+Check test.example package. Everything necessary should be there.
 
-See the `example.py` script for an example of community, collection, item, bundle and bitstream creation.
-Just set the credentials and base URL at the top of the script to match your test system, or if you've set environment
-variables, remove the arguments from the DSpaceClient() instantiation and the environment variables will be used as
-defaults.
+Test data are in `test/data` folder.
+If your test data contains special characters like čřšáý and so on, it is recommended
+to make `.stripped` variation of the file. 
+E.g. `my_format.json` and `my_format.stripped.json` for loading data
+and `my_format.test.xml` and `my_format.test.stripped.xml` for testing.
 
-The output from the `example.py` script should look something like:
+If not on dev-5 (e.g. when run on localhost), `.stripped` version of files will be loaded.
+The reason for this is, that when dspace runs on windows, it has trouble with special characters.
 
-```commandline
-╰─$ python example.py                                                                                                                                                                                                              1 ↵
-Updating token to 9730dfb9-c4ea-4f56-a2f0-4dc4cacf5059
-Authenticated successfully as kim@shepherd.nz
-API Post: Updating token to b44f91c2-5386-4c11-a1ca-1ea06613fae4
-{"timestamp":"2022-02-10T05:44:12.758+00:00","status":403,"error":"Forbidden","message":"Access is denied. Invalid CSRF token.","path":"/server/api/core/communities"}
-API Post: Retrying request with updated CSRF token
-community 31264734-49c0-4bff-8ed7-e09e3abbfe7a created successfully!
-New community created! Handle: 123456789/10
-collection c010ef9c-2483-47c3-83af-8a8c1f72e888 created successfully!
-New collection created! Handle: 123456789/11
-item e59dfc7a-f96e-4897-a913-e962b220132b created successfully!
-New item created! Handle: 123456789/12
-New bundle created! UUID: 528d1dd9-ca62-4609-bb2e-1ab367299447
-New bitstream created! UUID: 4740048b-25fa-4040-b0d1-4b27f13de75d
-All finished with example data creation. Visit your test repository to review created objects
-```
 
-## Credits
+## Settings
+See const.py for constants used at testing.
 
-Created by [Kim Shepherd](https://www.github.com/kshepherd) for [The Library Code GmbH](https://www.lib-co.de) with support from Universität Hohenheim
+To set up logs, navigate to support.logs.py and modify method set_up_logging.
 
-## License
+## Run
 
-This work is licensed under the [BSD 3-Clause License](https://github.com/the-library-code/dspace-rest-python/blob/088169cdcb1a92ff33589b1af8c08a17f9885bbf/LICENSE)
+In order to run tests, use command
+`python -m unittest`
 
-Copyright 2021 The Library Code GmbH
+Recommended variation is
+`python -m unittest -v 2> output.txt`
+which leaves result in output.txt
+
+Before running for the first time, requirements must be installed with following command
+`pip install -r requirements.txt`
+
+It is possible to run in Pycharm with configuration like so:
+
+![image](https://user-images.githubusercontent.com/88670521/186934112-d0f828fd-a809-4ed8-bbfd-4457b734d8fd.png)
