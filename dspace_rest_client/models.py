@@ -517,4 +517,100 @@ class RelationshipType(AddressableHALResource):
     def __init__(self, api_resource):
         super(RelationshipType, self).__init__(api_resource)
 
+    def get_metadata_values(self, field):
+        """
+        Return metadata values as simple list of strings
+        @param field: DSpace field, eg. dc.creator
+        @return: list of strings
+        """
+        values = list()
+        if field in self.metadata:
+            values = self.metadata[field]
+        return values
 
+    def as_dict(self):
+        """
+        Return a dict representation of this Item, based on super with item-specific attributes added
+        @return: dict of Item for API use
+        """
+        dso_dict = super(Item, self).as_dict()
+        item_dict = {'inArchive': self.inArchive, 'discoverable': self.discoverable, 'withdrawn': self.withdrawn}
+        return {**dso_dict, **item_dict}
+
+    @classmethod
+    def from_dso(cls, dso: DSpaceObject):
+        # Create new Item and copy everything over from this dso
+        item = cls()
+        for key, value in dso.__dict__.items():
+            item.__dict__[key] = value
+        return item
+
+class License(AddressableHALResource):
+    """
+    Specific attributes and functions for licenses
+    """
+    type = 'clarinlicense'
+    name = None
+    definition = None
+    confirmation = 0
+    requiredInfo = None
+    licenseLabel = None
+    extendedLicenseLabel = []
+    bitstream = None
+
+    def __init__(self, api_resource=None):
+        super(License, self).__init__(api_resource)
+
+        if api_resource is not None:
+            self.type = 'clarinlicense'
+            self.name = api_resource['name'] if 'name' in api_resource else None
+            self.definition = api_resource['definition'] if 'definition' in api_resource else None
+            self.confirmation = api_resource['confirmation'] if 'confirmation' in api_resource else 0
+            self.requiredInfo = api_resource['requiredInfo'] if 'requiredInfo' in api_resource else None
+            self.licenseLabel = Label(api_resource['clarinLicenseLabel']) if 'clarinLicenseLabel' in api_resource else None
+            self.extendedLicenseLabel = [Label(label) for label in api_resource.get('extendedClarinLicenseLabels', [])]
+            self.bitstream = api_resource['bitstreams'] if 'bitstreams' in api_resource else None
+
+    def to_dict(self):
+        return {
+            'name': self.name,
+            'license_id': self.id,
+            'definition': self.definition,
+            'confirmation': self.confirmation,
+            'required_info': self.requiredInfo,
+            'label_id': self.licenseLabel.id if self.licenseLabel else None,
+        }
+
+
+class Label(AddressableHALResource):
+    """
+    Specific attributes and functions for licenses
+    """
+    type = 'clarinlabel'
+    label = None
+    title = None
+    icon = None
+    extended = False
+
+    def __init__(self, api_resource=None):
+        """
+        Default constructor. Call DSpaceObject init then set label-specific attributes
+        @param api_resource: API result object to use as initial data
+        """
+        super(Label, self).__init__(api_resource)
+
+        if api_resource is not None:
+            self.type = 'clarinlicenselabel'
+            self.label = api_resource['label'] if 'label' in api_resource else None
+            self.title = api_resource['title'] if 'title' in api_resource else None
+            self.icon = api_resource['icon'] if 'icon' in api_resource else None
+            self.extended = api_resource['extended'] if 'extended' in api_resource else None
+
+    def to_dict(self):
+        return {
+            'label_id': self.id,
+            'label': self.label,
+            'title': self.title,
+            'icon': self.icon,
+            'is_extended': self.extended
+        }
