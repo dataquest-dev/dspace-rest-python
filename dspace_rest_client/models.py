@@ -517,34 +517,6 @@ class RelationshipType(AddressableHALResource):
     def __init__(self, api_resource):
         super(RelationshipType, self).__init__(api_resource)
 
-    def get_metadata_values(self, field):
-        """
-        Return metadata values as simple list of strings
-        @param field: DSpace field, eg. dc.creator
-        @return: list of strings
-        """
-        values = list()
-        if field in self.metadata:
-            values = self.metadata[field]
-        return values
-
-    def as_dict(self):
-        """
-        Return a dict representation of this Item, based on super with item-specific attributes added
-        @return: dict of Item for API use
-        """
-        dso_dict = super(Item, self).as_dict()
-        item_dict = {'inArchive': self.inArchive, 'discoverable': self.discoverable, 'withdrawn': self.withdrawn}
-        return {**dso_dict, **item_dict}
-
-    @classmethod
-    def from_dso(cls, dso: DSpaceObject):
-        # Create new Item and copy everything over from this dso
-        item = cls()
-        for key, value in dso.__dict__.items():
-            item.__dict__[key] = value
-        return item
-
 class License(AddressableHALResource):
     """
     Specific attributes and functions for licenses
