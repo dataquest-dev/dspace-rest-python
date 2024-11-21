@@ -521,27 +521,17 @@ class License(AddressableHALResource):
     """
     Specific attributes and functions for licenses
     """
-    type = 'clarinlicense'
-    name = None
-    definition = None
-    confirmation = 0
-    requiredInfo = None
-    licenseLabel = None
-    extendedLicenseLabel = []
-    bitstream = None
-
     def __init__(self, api_resource=None):
         super(License, self).__init__(api_resource)
-
-        if api_resource is not None:
-            self.type = 'clarinlicense'
-            self.name = api_resource['name'] if 'name' in api_resource else None
-            self.definition = api_resource['definition'] if 'definition' in api_resource else None
-            self.confirmation = api_resource['confirmation'] if 'confirmation' in api_resource else 0
-            self.requiredInfo = api_resource['requiredInfo'] if 'requiredInfo' in api_resource else None
-            self.licenseLabel = Label(api_resource['clarinLicenseLabel']) if 'clarinLicenseLabel' in api_resource else None
+        self.type = 'clarinlicense'
+        if api_resource:
+            self.name = api_resource.get('name')
+            self.definition = api_resource.get('definition')
+            self.confirmation = api_resource.get('confirmation', 0)
+            self.requiredInfo = api_resource.get('requiredInfo')
+            self.licenseLabel = Label(api_resource.get('clarinLicenseLabel'))
             self.extendedLicenseLabel = [Label(label) for label in api_resource.get('extendedClarinLicenseLabels', [])]
-            self.bitstream = api_resource['bitstreams'] if 'bitstreams' in api_resource else None
+            self.bitstream = api_resource.get('bitstreams')
 
     def to_dict(self):
         return {
@@ -558,25 +548,18 @@ class Label(AddressableHALResource):
     """
     Specific attributes and functions for licenses
     """
-    type = 'clarinlabel'
-    label = None
-    title = None
-    icon = None
-    extended = False
-
     def __init__(self, api_resource=None):
         """
         Default constructor. Call DSpaceObject init then set label-specific attributes
         @param api_resource: API result object to use as initial data
         """
         super(Label, self).__init__(api_resource)
-
-        if api_resource is not None:
-            self.type = 'clarinlicenselabel'
-            self.label = api_resource['label'] if 'label' in api_resource else None
-            self.title = api_resource['title'] if 'title' in api_resource else None
-            self.icon = api_resource['icon'] if 'icon' in api_resource else None
-            self.extended = api_resource['extended'] if 'extended' in api_resource else None
+        self.type = 'clarinlicenselabel'
+        if api_resource:
+            self.label = api_resource.get('label')
+            self.title = api_resource.get('title')
+            self.icon = api_resource.get('icon')
+            self.extended = api_resource.get('extended', False)
 
     def to_dict(self):
         return {
