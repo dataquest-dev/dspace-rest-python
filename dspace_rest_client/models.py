@@ -528,8 +528,11 @@ class License(AddressableHALResource):
         self.definition = (api_resource or {}).get('definition')
         self.confirmation = (api_resource or {}).get('confirmation', 0)
         self.requiredInfo = (api_resource or {}).get('requiredInfo')
-        self.licenseLabel = Label((api_resource or {}).get('clarinLicenseLabel'))
-        self.extendedLicenseLabel = [Label(label) for label in (api_resource or {}).get('extendedClarinLicenseLabels', [])]
+        self.licenseLabel = Label(license_label_value) \
+            if (license_label_value := (api_resource or {}).get('clarinLicenseLabel')) \
+            else None
+        self.extendedLicenseLabel = [Label(label) for label in
+                                     (api_resource or {}).get('extendedClarinLicenseLabels', [])]
         self.bitstream = (api_resource or {}).get('bitstreams')
 
     def to_dict(self):
