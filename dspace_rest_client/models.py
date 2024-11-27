@@ -523,17 +523,17 @@ class License(AddressableHALResource):
     """
     def __init__(self, api_resource=None):
         super(License, self).__init__(api_resource)
+        api_resource = api_resource or {}
         self.type = 'clarinlicense'
-        self.name = (api_resource or {}).get('name')
-        self.definition = (api_resource or {}).get('definition')
-        self.confirmation = (api_resource or {}).get('confirmation', 0)
-        self.requiredInfo = (api_resource or {}).get('requiredInfo')
-        self.licenseLabel = Label(license_label_value) \
-            if (license_label_value := (api_resource or {}).get('clarinLicenseLabel')) \
-            else None
+        self.name = api_resource.get('name')
+        self.definition = api_resource.get('definition')
+        self.confirmation = api_resource.get('confirmation', 0)
+        self.requiredInfo = api_resource.get('requiredInfo')
+        license_label_value = api_resource.get('clarinLicenseLabel')
+        self.licenseLabel = Label(license_label_value) if license_label_value else None
         self.extendedLicenseLabel = [Label(label) for label in
-                                     (api_resource or {}).get('extendedClarinLicenseLabels', [])]
-        self.bitstream = (api_resource or {}).get('bitstreams')
+                                     api_resource.get('extendedClarinLicenseLabels', [])]
+        self.bitstream = api_resource.get('bitstreams')
 
     def to_dict(self):
         return {
@@ -556,11 +556,12 @@ class Label(AddressableHALResource):
         @param api_resource: API result object to use as initial data
         """
         super(Label, self).__init__(api_resource)
+        api_resource = api_resource or {}
         self.type = 'clarinlicenselabel'
-        self.label = (api_resource or {}).get('label')
-        self.title = (api_resource or {}).get('title')
-        self.icon = (api_resource or {}).get('icon')
-        self.extended = (api_resource or {}).get('extended', False)
+        self.label = api_resource.get('label')
+        self.title = api_resource.get('title')
+        self.icon = api_resource.get('icon')
+        self.extended = api_resource.get('extended', False)
 
     def to_dict(self):
         return {
