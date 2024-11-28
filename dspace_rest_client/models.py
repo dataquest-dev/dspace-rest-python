@@ -517,4 +517,57 @@ class RelationshipType(AddressableHALResource):
     def __init__(self, api_resource):
         super(RelationshipType, self).__init__(api_resource)
 
+class License(AddressableHALResource):
+    """
+    Specific attributes and functions for licenses
+    """
+    def __init__(self, api_resource=None):
+        super(License, self).__init__(api_resource)
+        api_resource = api_resource or {}
+        self.type = 'clarinlicense'
+        self.name = api_resource.get('name')
+        self.definition = api_resource.get('definition')
+        self.confirmation = api_resource.get('confirmation', 0)
+        self.requiredInfo = api_resource.get('requiredInfo')
+        license_label_value = api_resource.get('clarinLicenseLabel')
+        self.licenseLabel = Label(license_label_value) if license_label_value else None
+        self.extendedLicenseLabel = [Label(label) for label in
+                                     api_resource.get('extendedClarinLicenseLabels', [])]
+        self.bitstream = api_resource.get('bitstreams')
 
+    def to_dict(self):
+        return {
+            'name': self.name,
+            'license_id': self.id,
+            'definition': self.definition,
+            'confirmation': self.confirmation,
+            'required_info': self.requiredInfo,
+            'label_id': self.licenseLabel.id if self.licenseLabel else None,
+        }
+
+
+class Label(AddressableHALResource):
+    """
+    Specific attributes and functions for licenses
+    """
+    def __init__(self, api_resource=None):
+        """
+        Default constructor. Call DSpaceObject init then set label-specific attributes
+        @param api_resource: API result object to use as initial data
+        """
+        super(Label, self).__init__(api_resource)
+        api_resource = api_resource or {}
+        self.type = 'clarinlicenselabel'
+        self.label = api_resource.get('label')
+        self.title = api_resource.get('title')
+        self.icon = api_resource.get('icon')
+        self.extended = api_resource.get('extended', False)
+
+    def to_dict(self):
+        return {
+            'label_id': self.id,
+            'label': self.label,
+            'title': self.title,
+            'icon': self.icon,
+            'is_extended': self.extended
+        }
