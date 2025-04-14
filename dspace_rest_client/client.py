@@ -704,7 +704,6 @@ class DSpaceClient:
             logging.error(f'Error creating bitstream: {r.status_code}: {r.text}')
             return None
 
-
     def download_bitstream(self, uuid=None):
         """
         Download bitstream and return full response object including headers, and content
