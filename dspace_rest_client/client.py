@@ -109,15 +109,17 @@ class DSpaceClient:
         self.request_headers = {'Content-type': 'application/json', 'User-Agent': self.USER_AGENT}
         self.list_request_headers = {'Content-type': 'text/uri-list', 'User-Agent': self.USER_AGENT}
 
-    def authenticate(self, retry=False):
+    def authenticate(self, user=None, password=None, retry=False):
         """
         Authenticate with the DSpace REST API. As with other operations, perform XSRF refreshes when necessary.
         After POST, check /authn/status and log success if the authenticated json property is true
         @return: response object
         """
+        user = user or self.USERNAME
+        password = password or self.PASSWORD
         # Set headers for requests made during authentication
         # Get and update CSRF token
-        r = self.session.post(self.LOGIN_URL, data={'user': self.USERNAME, 'password': self.PASSWORD},
+        r = self.session.post(self.LOGIN_URL, data={'user': user, 'password': password},
                               headers=self.auth_request_headers)
         self.update_token(r)
 
@@ -131,12 +133,12 @@ class DSpaceClient:
                 return False
             else:
                 logging.debug("Retrying request with updated CSRF token")
-                return self.authenticate(retry=True)
+                return self.authenticate(user=user, password=password, retry=True)
 
         if r.status_code == 401:
             # 401 Unauthorized
             # If we get a 401, this means a general authentication failure
-            logging.error(f'Authentication failure: invalid credentials for user {self.USERNAME}')
+            logging.error(f'Authentication failure: invalid credentials for user {user}')
             return False
 
         # Update headers with new bearer token if present
@@ -148,7 +150,7 @@ class DSpaceClient:
         if r.status_code == 200:
             r_json = parse_json(r)
             if 'authenticated' in r_json and r_json['authenticated'] is True:
-                logging.info(f'Authenticated successfully as {self.USERNAME}')
+                logging.info(f'Authenticated successfully as {user}')
                 return r_json['authenticated']
 
         # Default, return false
@@ -702,6 +704,7 @@ class DSpaceClient:
             logging.error(f'Error creating bitstream: {r.status_code}: {r.text}')
             return None
 
+
     def download_bitstream(self, uuid=None):
         """
         Download bitstream and return full response object including headers, and content
@@ -856,6 +859,24 @@ class DSpaceClient:
             return self.api_get(url, None, None)
         except ValueError:
             logging.error(f'Invalid item UUID: {uuid}')
+            return None
+
+    def get_items_by_handle(self, handle):
+        if handle is None:
+            return None
+        params = {
+            "handle": handle
+        }
+        url = f'{self.API_ENDPOINT}/core/items/search/byHandle'
+        try:
+            r = self.api_get(url, params, None)
+            r_json = parse_json(r)
+            if '_embedded' in r_json:
+                if 'items' in r_json['_embedded']:
+                    return r_json['_embedded']['items']
+            return None
+        except ValueError:
+            logging.error(f'Invalid item handle: {handle}')
             return None
 
     def get_items(self):
@@ -1128,3 +1149,149 @@ class DSpaceClient:
         body = f'{self.API_ENDPOINT}/eperson/groups/{group_uuid}'
         r = self.api_put_uri(url, None, body, False)
         return r
+
+    def get_clarinlruallowances(self):
+        """
+        Fetch all clarinlruallowances.
+        """
+        url = f'{self.API_ENDPOINT}/core/clarinlruallowances'
+        try:
+            response = self.api_get(url)
+            data = parse_json(response)
+            allowances = data.get('_embedded', {}).get('clarinlruallowances')
+            if allowances:
+                logging.info(f"Fetched {len(allowances)} CLARIN LRU allowances.")
+                return allowances
+            logging.warning("No CLARIN LRU allowances found.")
+        except Exception as e:
+            logging.error(f"Error fetching CLARIN LRU allowances [{url}]: {e}")
+        return None
+
+    def get_clarinlruallowances_by_bitstreama_and_user(self, bitstream_uuid, user_uuid):
+        """
+        Fetch user allowances for a specific bitstream and user.
+        """
+        url = f'{self.API_ENDPOINT}/core/clarinlruallowance/search/byBitstreamAndUser'
+        params = {'bitstreamUUID': bitstream_uuid, 'userUUID': user_uuid}
+        try:
+            response = self.api_get(url, params=params)
+            data = parse_json(response)
+            allowances = data.get('_embedded', {}).get('clarinlruallowances')
+            if allowances:
+                logging.info(f"Found {len(allowances)} user allowance(s).")
+                return allowances
+            logging.warning(f"No user allowances found for user: {user_uuid} and bitstream: {bitstream_uuid}")
+        except Exception as e:
+            logging.error(f"Error fetching user allowances: {e}")
+        return None
+
+
+    def create_clarinlruallowances(self, bitstream_uuid):
+        """
+        Create clarinlruallowances for a bitstream for logged user
+        by managing user metadata of bitstream.
+        """
+        url = f'{self.API_ENDPOINT}/core/clarinusermetadata/manage'
+        params = {'bitstreamUUID': bitstream_uuid}
+        metadata_payload = [
+            {"metadataKey": "NAME", "metadataValue": "Test"}
+        ]
+        try:
+            response = self.api_post(url, json=metadata_payload, params=params)
+            if response.status_code == 200:
+                logging.info(f"User metadata access managed for bitstream: {bitstream_uuid}")
+                return True
+            logging.warning(f"Failed to manage user metadata: {response.status_code}")
+        except Exception as e:
+            logging.error(f"Error managing user metadata: {e}")
+        return False
+
+
+    def logout(self):
+        """
+        Log out from the DSpace session.
+        """
+        try:
+            response = self.session.post(f'{self.API_ENDPOINT}/authn/logout', headers=self.request_headers)
+            if response.status_code == 204:
+                self.session.cookies.clear()
+                self.session.headers.pop('Authorization', None)
+                logging.info("Logout successful.")
+                return True
+            else:
+                logging.error(f"Logout failed: {response.status_code} - {response.text}")
+        except Exception as e:
+            logging.error(f"Logout error: {e}")
+        return False
+
+    def get_http_status(self, url):
+        """
+        Check the HTTP status code of a URL.
+        """
+        if not url:
+            logging.warning("Provided URL is not defined.")
+            return None
+        try:
+            response = self.api_get(url)
+            logging.info(f"Checked URL status: {url} -> {response.status_code}")
+            return response.status_code
+        except Exception as e:
+            logging.error(f"Error getting URL status for {url}: {e}")
+            return None
+
+
+    def fetch_bundle(self, bundle_reference):
+        """
+        Fetch a bundle either by UUID or URL.
+        """
+        if not bundle_reference:
+            logging.warning("No bundle reference provided.")
+            return None
+
+        url = bundle_reference if "bundle" in bundle_reference else\
+            f'{self.API_ENDPOINT}/core/{bundle_reference}/bundle'
+        try:
+            response = self.api_get(url)
+            data = parse_json(response)
+            bundle = data.get('_embedded', {}).get('bundles', [{}])[0]
+            logging.info(f"Bundle retrieved: {bundle.get('uuid', 'unknown')}")
+            return bundle
+        except Exception as e:
+            logging.error(f"Error fetching bundle: {e}")
+            return None
+
+    def fetch_bitstreams(self, bitstream_reference):
+        """
+        Fetch bitstreams either by UUID or direct URL.
+        """
+        if not bitstream_reference:
+            logging.warning("No bitstream reference provided.")
+            return None
+
+        url = bitstream_reference if "bitstream" in bitstream_reference else \
+            f'{self.API_ENDPOINT}/core/{bitstream_reference}/bitstream'
+        try:
+            response = self.api_get(url)
+            data = parse_json(response)
+            bitstreams = data.get('_embedded', {}).get('bitstreams', [])
+            logging.info(f"Fetched {len(bitstreams)} bitstream(s).")
+            return bitstreams
+        except Exception as e:
+            logging.error(f"Error fetching bitstreams: {e}")
+            return None
+
+
+    def get_user_by_email(self, email):
+        """
+        Retrieve user details using their email address.
+        """
+        url = f'{self.API_ENDPOINT}/eperson/epersons/search/byEmail'
+        params = {'email': email}
+        try:
+            response = self.api_get(url, params=params)
+            user_data = parse_json(response)
+            logging.info(f"User fetched by email: {email}")
+            return User(user_data)
+        except Exception as e:
+            logging.error(f"Error retrieving user by email {email}: {e}")
+            return None
