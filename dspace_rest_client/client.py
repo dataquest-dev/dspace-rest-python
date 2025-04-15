@@ -137,13 +137,13 @@ class DSpaceClient:
                 _logger.error(f'Too many retries updating token: {r.status_code}: {r.text}')
                 return False
             else:
-                logging.debug("Retrying request with updated CSRF token")
+                _logger.debug("Retrying request with updated CSRF token")
                 return self.authenticate(user=user, password=password, retry=True)
 
         if r.status_code == 401:
             # 401 Unauthorized
             # If we get a 401, this means a general authentication failure
-            logging.error(f'Authentication failure: invalid credentials for user {user}')
+            _logger.error(f'Authentication failure: invalid credentials for user {user}')
             return False
 
         # Update headers with new bearer token if present
@@ -155,7 +155,7 @@ class DSpaceClient:
         if r.status_code == 200:
             r_json = parse_json(r)
             if 'authenticated' in r_json and r_json['authenticated'] is True:
-                logging.info(f'Authenticated successfully as {user}')
+                _logger.info(f'Authenticated successfully as {user}')
                 return r_json['authenticated']
 
         # Default, return false
@@ -896,6 +896,9 @@ class DSpaceClient:
             return None
 
     def get_items_by_handle(self, handle):
+        """
+        Get items based on handle.
+        """
         if handle is None:
             return None
         params = {
@@ -910,7 +913,7 @@ class DSpaceClient:
                     return r_json['_embedded']['items']
             return None
         except ValueError:
-            logging.error(f'Invalid item handle: {handle}')
+            _logger.error(f'Invalid item handle: {handle}')
             return None
 
     def get_items(self):
@@ -1194,11 +1197,11 @@ class DSpaceClient:
             data = parse_json(response)
             allowances = data.get('_embedded', {}).get('clarinlruallowances')
             if allowances:
-                logging.info(f"Fetched {len(allowances)} CLARIN LRU allowances.")
+                _logger.info(f"Fetched {len(allowances)} CLARIN LRU allowances.")
                 return allowances
-            logging.warning("No CLARIN LRU allowances found.")
+            _logger.warning("No CLARIN LRU allowances found.")
         except Exception as e:
-            logging.error(f"Error fetching CLARIN LRU allowances [{url}]: {e}")
+            _logger.error(f"Error fetching CLARIN LRU allowances [{url}]: {e}")
         return None
 
     def get_clarinlruallowances_by_bitstream_and_user(self, bitstream_uuid, user_uuid):
@@ -1212,11 +1215,11 @@ class DSpaceClient:
             data = parse_json(response)
             allowances = data.get('_embedded', {}).get('clarinlruallowances')
             if allowances:
-                logging.info(f"Found {len(allowances)} user allowance(s).")
+                _logger.info(f"Found {len(allowances)} user allowance(s).")
                 return allowances
-            logging.warning(f"No user allowances found for user: {user_uuid} and bitstream: {bitstream_uuid}")
+            _logger.warning(f"No user allowances found for user: {user_uuid} and bitstream: {bitstream_uuid}")
         except Exception as e:
-            logging.error(f"Error fetching user allowances: {e}")
+            _logger.error(f"Error fetching user allowances: {e}")
         return None
 
 
@@ -1233,11 +1236,11 @@ class DSpaceClient:
         try:
             response = self.api_post(url, json=metadata_payload, params=params)
             if response.status_code == 200:
-                logging.info(f"User metadata access managed for bitstream: {bitstream_uuid}")
+                _logger.info(f"User metadata access managed for bitstream: {bitstream_uuid}")
                 return True
-            logging.warning(f"Failed to manage user metadata: {response.status_code}")
+            _logger.warning(f"Failed to manage user metadata: {response.status_code}")
         except Exception as e:
-            logging.error(f"Error managing user metadata: {e}")
+            _logger.error(f"Error managing user metadata: {e}")
         return False
 
 
@@ -1250,12 +1253,12 @@ class DSpaceClient:
             if response.status_code == 204:
                 self.session.cookies.clear()
                 self.session.headers.pop('Authorization', None)
-                logging.info("Logout successful.")
+                _logger.info("Logout successful.")
                 return True
             else:
-                logging.error(f"Logout failed: {response.status_code} - {response.text}")
+                _logger.error(f"Logout failed: {response.status_code} - {response.text}")
         except Exception as e:
-            logging.error(f"Logout error: {e}")
+            _logger.error(f"Logout error: {e}")
         return False
 
     def get_http_status(self, url):
@@ -1263,14 +1266,14 @@ class DSpaceClient:
         Get the HTTP status code of a URL.
         """
         if not url:
-            logging.warning("Provided URL is not defined.")
+            _logger.warning("Provided URL is not defined.")
             return None
         try:
             response = self.api_get(url)
-            logging.info(f"Checked URL status: {url} -> {response.status_code}")
+            _logger.info(f"Checked URL status: {url} -> {response.status_code}")
             return response.status_code
         except Exception as e:
-            logging.error(f"Error getting URL status for {url}: {e}")
+            _logger.error(f"Error getting URL status for {url}: {e}")
             return None
 
 
@@ -1289,10 +1292,10 @@ class DSpaceClient:
             data = parse_json(response)
             bundles = data.get('_embedded', {}).get('bundles', [])
             bundle = bundles[0] if bundles else {}
-            logging.info(f"Bundle retrieved: {bundle.get('uuid', 'unknown')}")
+            _logger.info(f"Bundle retrieved: {bundle.get('uuid', 'unknown')}")
             return bundle
         except Exception as e:
-            logging.error(f"Error getting bundle: {e}")
+            _logger.error(f"Error getting bundle: {e}")
             return None
 
     def get_bitstream(self, bitstream_reference):
@@ -1300,7 +1303,7 @@ class DSpaceClient:
         Get bitstream either by UUID or direct URL.
         """
         if not bitstream_reference:
-            logging.warning("No bitstream reference provided.")
+            _logger.warning("No bitstream reference provided.")
             return None
 
         url = bitstream_reference if "bitstream" in bitstream_reference else \
@@ -1310,10 +1313,10 @@ class DSpaceClient:
             data = parse_json(response)
             bitstreams = data.get('_embedded', {}).get('bitstreams', [])
             bitstream = bitstreams[0] if bitstreams else {}
-            logging.info(f"Bitstream retrieved: {bitstream.get('uuid', 'unknown')}")
+            _logger.info(f"Bitstream retrieved: {bitstream.get('uuid', 'unknown')}")
             return bitstream
         except Exception as e:
-            logging.error(f"Error getting bitstream: {e}")
+            _logger.error(f"Error getting bitstream: {e}")
             return None
 
 
@@ -1326,8 +1329,8 @@ class DSpaceClient:
         try:
             response = self.api_get(url, params=params)
             user_data = parse_json(response)
-            logging.info(f"User fetched by email: {email}")
+            _logger.info(f"User fetched by email: {email}")
             return User(user_data)
         except Exception as e:
-            logging.error(f"Error retrieving user by email {email}: {e}")
+            _logger.error(f"Error retrieving user by email {email}: {e}")
             return None
