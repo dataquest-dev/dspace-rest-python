@@ -1201,7 +1201,7 @@ class DSpaceClient:
             logging.error(f"Error fetching CLARIN LRU allowances [{url}]: {e}")
         return None
 
-    def get_clarinlruallowances_by_bitstreama_and_user(self, bitstream_uuid, user_uuid):
+    def get_clarinlruallowances_by_bitstream_and_user(self, bitstream_uuid, user_uuid):
         """
         Fetch user allowances for a specific bitstream and user.
         """
@@ -1260,7 +1260,7 @@ class DSpaceClient:
 
     def get_http_status(self, url):
         """
-        Check the HTTP status code of a URL.
+        Get the HTTP status code of a URL.
         """
         if not url:
             logging.warning("Provided URL is not defined.")
@@ -1274,9 +1274,9 @@ class DSpaceClient:
             return None
 
 
-    def fetch_bundle(self, bundle_reference):
+    def get_bundle(self, bundle_reference):
         """
-        Fetch a bundle either by UUID or URL.
+        Get a bundle either by UUID or URL.
         """
         if not bundle_reference:
             logging.warning("No bundle reference provided.")
@@ -1287,16 +1287,17 @@ class DSpaceClient:
         try:
             response = self.api_get(url)
             data = parse_json(response)
-            bundle = data.get('_embedded', {}).get('bundles', [{}])[0]
+            bundles = data.get('_embedded', {}).get('bundles', [])
+            bundle = bundles[0] if bundles else {}
             logging.info(f"Bundle retrieved: {bundle.get('uuid', 'unknown')}")
             return bundle
         except Exception as e:
-            logging.error(f"Error fetching bundle: {e}")
+            logging.error(f"Error getting bundle: {e}")
             return None
 
-    def fetch_bitstreams(self, bitstream_reference):
+    def get_bitstream(self, bitstream_reference):
         """
-        Fetch bitstreams either by UUID or direct URL.
+        Get bitstream either by UUID or direct URL.
         """
         if not bitstream_reference:
             logging.warning("No bitstream reference provided.")
@@ -1308,10 +1309,11 @@ class DSpaceClient:
             response = self.api_get(url)
             data = parse_json(response)
             bitstreams = data.get('_embedded', {}).get('bitstreams', [])
-            logging.info(f"Fetched {len(bitstreams)} bitstream(s).")
-            return bitstreams
+            bitstream = bitstreams[0] if bitstreams else {}
+            logging.info(f"Bitstream retrieved: {bitstream.get('uuid', 'unknown')}")
+            return bitstream
         except Exception as e:
-            logging.error(f"Error fetching bitstreams: {e}")
+            logging.error(f"Error getting bitstream: {e}")
             return None
 
 
