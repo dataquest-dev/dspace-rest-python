@@ -897,7 +897,7 @@ class DSpaceClient:
 
     def get_item_by_handle(self, handle):
         """
-        Get items based on handle.
+        Get item based on handle.
         """
         if handle is None:
             return None
