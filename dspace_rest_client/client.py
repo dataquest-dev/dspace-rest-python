@@ -895,7 +895,7 @@ class DSpaceClient:
             _logger.error(f'Invalid item UUID: {uuid}')
             return None
 
-    def get_items_by_handle(self, handle):
+    def get_item_by_handle(self, handle):
         """
         Get items based on handle.
         """
@@ -910,7 +910,9 @@ class DSpaceClient:
             r_json = parse_json(r)
             if '_embedded' in r_json:
                 if 'items' in r_json['_embedded']:
-                    return r_json['_embedded']['items']
+                    items = r_json['_embedded']['items']
+                    if len(items) > 0:
+                        return Item(items[0])
             return None
         except ValueError:
             _logger.error(f'Invalid item handle: {handle}')
@@ -1255,6 +1257,9 @@ class DSpaceClient:
                 self.session.headers.pop('Authorization', None)
                 _logger.info("Logout successful.")
                 return True
+            elif response.status_code == 403 and 'Invalid CSRF token' in response.text:
+                _logger.warning("Logout skipped: not logged in or invalid CSRF token.")
+                return True
             else:
                 _logger.error(f"Logout failed: {response.status_code} - {response.text}")
         except Exception as e:
@@ -1275,50 +1280,6 @@ class DSpaceClient:
         except Exception as e:
             _logger.error(f"Error getting URL status for {url}: {e}")
             return None
-
-
-    def get_bundle(self, bundle_reference):
-        """
-        Get a bundle either by UUID or URL.
-        """
-        if not bundle_reference:
-            logging.warning("No bundle reference provided.")
-            return None
-
-        url = bundle_reference if "bundle" in bundle_reference else\
-            f'{self.API_ENDPOINT}/core/{bundle_reference}/bundle'
-        try:
-            response = self.api_get(url)
-            data = parse_json(response)
-            bundles = data.get('_embedded', {}).get('bundles', [])
-            bundle = bundles[0] if bundles else {}
-            _logger.info(f"Bundle retrieved: {bundle.get('uuid', 'unknown')}")
-            return bundle
-        except Exception as e:
-            _logger.error(f"Error getting bundle: {e}")
-            return None
-
-    def get_bitstream(self, bitstream_reference):
-        """
-        Get bitstream either by UUID or direct URL.
-        """
-        if not bitstream_reference:
-            _logger.warning("No bitstream reference provided.")
-            return None
-
-        url = bitstream_reference if "bitstream" in bitstream_reference else \
-            f'{self.API_ENDPOINT}/core/{bitstream_reference}/bitstream'
-        try:
-            response = self.api_get(url)
-            data = parse_json(response)
-            bitstreams = data.get('_embedded', {}).get('bitstreams', [])
-            bitstream = bitstreams[0] if bitstreams else {}
-            _logger.info(f"Bitstream retrieved: {bitstream.get('uuid', 'unknown')}")
-            return bitstream
-        except Exception as e:
-            _logger.error(f"Error getting bitstream: {e}")
-            return None
-
 
     def get_user_by_email(self, email):
         """
