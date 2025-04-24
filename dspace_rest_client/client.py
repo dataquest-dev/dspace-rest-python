@@ -114,17 +114,15 @@ class DSpaceClient:
         self.request_headers = {'Content-type': 'application/json', 'User-Agent': self.USER_AGENT}
         self.list_request_headers = {'Content-type': 'text/uri-list', 'User-Agent': self.USER_AGENT}
 
-    def authenticate(self, user=None, password=None, retry=False):
+    def authenticate(self, retry=False):
         """
         Authenticate with the DSpace REST API. As with other operations, perform XSRF refreshes when necessary.
         After POST, check /authn/status and log success if the authenticated json property is true
         @return: response object
         """
-        user = user or self.USERNAME
-        password = password or self.PASSWORD
         # Set headers for requests made during authentication
         # Get and update CSRF token
-        r = self.session.post(self.LOGIN_URL, data={'user': user, 'password': password},
+        r = self.session.post(self.LOGIN_URL, data={'user': self.USERNAME, 'password': self.PASSWORD},
                               headers=self.auth_request_headers)
         self.update_token(r)
 
@@ -138,12 +136,12 @@ class DSpaceClient:
                 return False
             else:
                 _logger.debug("Retrying request with updated CSRF token")
-                return self.authenticate(user=user, password=password, retry=True)
+                return self.authenticate(retry=True)
 
         if r.status_code == 401:
             # 401 Unauthorized
             # If we get a 401, this means a general authentication failure
-            _logger.error(f'Authentication failure: invalid credentials for user {user}')
+            _logger.error(f'Authentication failure: invalid credentials for user {self.USERNAME}')
             return False
 
         # Update headers with new bearer token if present
@@ -155,7 +153,7 @@ class DSpaceClient:
         if r.status_code == 200:
             r_json = parse_json(r)
             if 'authenticated' in r_json and r_json['authenticated'] is True:
-                _logger.info(f'Authenticated successfully as {user}')
+                _logger.info(f'Authenticated successfully as {self.USERNAME}')
                 return r_json['authenticated']
 
         # Default, return false
@@ -914,7 +912,7 @@ class DSpaceClient:
                     if len(items) > 0:
                         return Item(items[0])
             return None
-        except ValueError:
+        except (TypeError, ValueError):
             _logger.error(f'Invalid item handle: {handle}')
             return None
 
@@ -1245,41 +1243,6 @@ class DSpaceClient:
             _logger.error(f"Error managing user metadata: {e}")
         return False
 
-
-    def logout(self):
-        """
-        Log out from the DSpace session.
-        """
-        try:
-            response = self.session.post(f'{self.API_ENDPOINT}/authn/logout', headers=self.request_headers)
-            if response.status_code == 204:
-                self.session.cookies.clear()
-                self.session.headers.pop('Authorization', None)
-                _logger.info("Logout successful.")
-                return True
-            elif response.status_code == 403 and 'Invalid CSRF token' in response.text:
-                _logger.warning("Logout skipped: not logged in or invalid CSRF token.")
-                return True
-            else:
-                _logger.error(f"Logout failed: {response.status_code} - {response.text}")
-        except Exception as e:
-            _logger.error(f"Logout error: {e}")
-        return False
-
-    def get_http_status(self, url):
-        """
-        Get the HTTP status code of a URL.
-        """
-        if not url:
-            _logger.warning("Provided URL is not defined.")
-            return None
-        try:
-            response = self.api_get(url)
-            _logger.info(f"Checked URL status: {url} -> {response.status_code}")
-            return response.status_code
-        except Exception as e:
-            _logger.error(f"Error getting URL status for {url}: {e}")
-            return None
 
     def get_user_by_email(self, email):
         """
