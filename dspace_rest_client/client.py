@@ -1197,9 +1197,7 @@ class DSpaceClient:
             data = parse_json(response)
             allowances = data.get('_embedded', {}).get('clarinlruallowances')
             if allowances:
-                _logger.info(f"Fetched {len(allowances)} CLARIN LRU allowances.")
                 return allowances
-            _logger.warning("No CLARIN LRU allowances found.")
         except Exception as e:
             _logger.error(f"Error fetching CLARIN LRU allowances [{url}]: {e}")
         return None
@@ -1215,9 +1213,7 @@ class DSpaceClient:
             data = parse_json(response)
             allowances = data.get('_embedded', {}).get('clarinlruallowances')
             if allowances:
-                _logger.info(f"Found {len(allowances)} user allowance(s).")
                 return allowances
-            _logger.warning(f"No user allowances found for user: {user_uuid} and bitstream: {bitstream_uuid}")
         except Exception as e:
             _logger.error(f"Error fetching user allowances: {e}")
         return None
@@ -1236,9 +1232,7 @@ class DSpaceClient:
         try:
             response = self.api_post(url, json=metadata_payload, params=params)
             if response.status_code == 200:
-                _logger.info(f"User metadata access managed for bitstream: {bitstream_uuid}")
                 return True
-            _logger.warning(f"Failed to manage user metadata: {response.status_code}")
         except Exception as e:
             _logger.error(f"Error managing user metadata: {e}")
         return False
@@ -1253,7 +1247,6 @@ class DSpaceClient:
         try:
             response = self.api_get(url, params=params)
             user_data = parse_json(response)
-            _logger.info(f"User fetched by email: {email}")
             return User(user_data)
         except Exception as e:
             _logger.error(f"Error retrieving user by email {email}: {e}")
