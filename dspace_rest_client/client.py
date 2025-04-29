@@ -893,6 +893,29 @@ class DSpaceClient:
             _logger.error(f'Invalid item UUID: {uuid}')
             return None
 
+    def get_item_by_handle(self, handle):
+        """
+        Get item based on handle.
+        """
+        if handle is None:
+            return None
+        params = {
+            "handle": handle
+        }
+        url = f'{self.API_ENDPOINT}/core/items/search/byHandle'
+        try:
+            r = self.api_get(url, params, None)
+            r_json = parse_json(r)
+            if '_embedded' in r_json:
+                if 'items' in r_json['_embedded']:
+                    items = r_json['_embedded']['items']
+                    if len(items) > 0:
+                        return Item(items[0])
+            return None
+        except (TypeError, ValueError):
+            _logger.error(f'Invalid item handle: {handle}')
+            return None
+
     def get_items(self):
         """
         Get all archived items for a logged-in administrator. Admin only! Usually you will want to
@@ -1163,3 +1186,68 @@ class DSpaceClient:
         body = f'{self.API_ENDPOINT}/eperson/groups/{group_uuid}'
         r = self.api_put_uri(url, None, body, False)
         return r
+
+    def get_clarinlruallowances(self):
+        """
+        Fetch all clarinlruallowances.
+        """
+        url = f'{self.API_ENDPOINT}/core/clarinlruallowances'
+        try:
+            response = self.api_get(url)
+            data = parse_json(response)
+            allowances = data.get('_embedded', {}).get('clarinlruallowances')
+            if allowances:
+                return allowances
+        except Exception as e:
+            _logger.error(f"Error fetching CLARIN LRU allowances [{url}]: {e}")
+        return None
+
+    def get_clarinlruallowances_by_bitstream_and_user(self, bitstream_uuid, user_uuid):
+        """
+        Fetch user allowances for a specific bitstream and user.
+        """
+        url = f'{self.API_ENDPOINT}/core/clarinlruallowance/search/byBitstreamAndUser'
+        params = {'bitstreamUUID': bitstream_uuid, 'userUUID': user_uuid}
+        try:
+            response = self.api_get(url, params=params)
+            data = parse_json(response)
+            allowances = data.get('_embedded', {}).get('clarinlruallowances')
+            if allowances:
+                return allowances
+        except Exception as e:
+            _logger.error(f"Error fetching user allowances: {e}")
+        return None
+
+
+    def create_clarinlruallowances(self, bitstream_uuid):
+        """
+        Create clarinlruallowances for a bitstream for logged user
+        by managing user metadata of bitstream.
+        """
+        url = f'{self.API_ENDPOINT}/core/clarinusermetadata/manage'
+        params = {'bitstreamUUID': bitstream_uuid}
+        metadata_payload = [
+            {"metadataKey": "NAME", "metadataValue": "Test"}
+        ]
+        try:
+            response = self.api_post(url, json=metadata_payload, params=params)
+            if response.status_code == 200:
+                return True
+        except Exception as e:
+            _logger.error(f"Error managing user metadata: {e}")
+        return False
+
+
+    def get_user_by_email(self, email):
+        """
+        Retrieve user details using their email address.
+        """
+        url = f'{self.API_ENDPOINT}/eperson/epersons/search/byEmail'
+        params = {'email': email}
+        try:
+            response = self.api_get(url, params=params)
+            user_data = parse_json(response)
+            return User(user_data)
+        except Exception as e:
+            _logger.error(f"Error retrieving user by email {email}: {e}")
+            return None
