@@ -1082,6 +1082,35 @@ class DSpaceClient:
             # that you see for other DSO types - still figuring out the best way
         return Group(api_resource=parse_json(self.create_dso(url, params=None, data=data)))
 
+    def add_member(self, group, eperson):
+        """
+        Adds a user (EPerson) as a member of the specified group.
+
+        Args:
+            group (Group): The group to which the user will be added.
+            eperson (User): The EPerson to be added as a member of the group.
+
+        Returns:
+            bool: True if the user was successfully added (HTTP 204), False otherwise.
+        """
+        if not isinstance(group, Group):
+            _logger.error("Provided 'group' is not an instance of Group.")
+            return False
+
+        if not isinstance(eperson, User):
+            _logger.error("Provided 'eperson' is not an instance of User.")
+            return False
+
+        url = f' {self.API_ENDPOINT}/eperson/groups/{group.uuid}/epersons'
+        eperson_uri = f'{self.API_ENDPOINT}/epersons/{eperson.uuid}'
+        r = self.api_post_uri(url, params=None, uri_list=eperson_uri)
+        if r.status_code == 204:
+            return True
+        _logger.error(f"Failed to add user {eperson.uuid} to group {group.uuid}. "
+                        f"Status code: {r.status_code}")
+        return False
+
+
     def start_workflow(self, workspace_item):
         url = f'{self.API_ENDPOINT}/workflow/workflowitems'
         res = parse_json(self.api_post_uri(url, params=None, uri_list=workspace_item))
