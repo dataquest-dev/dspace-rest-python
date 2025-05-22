@@ -1082,6 +1082,16 @@ class DSpaceClient:
             # that you see for other DSO types - still figuring out the best way
         return Group(api_resource=parse_json(self.create_dso(url, params=None, data=data)))
 
+    def create_submit_group(self, collection):
+        """
+        Creates a submitter group for the given collection.
+        """
+        url = f'{self.API_ENDPOINT}/core/collections/{collection.uuid}/submittersGroup'
+        r = self.api_post(url, json={}, params=None)
+        if r.status_code == 201:
+            return Group(parse_json(r))
+        return None
+
     def add_member(self, group, eperson):
         """
         Adds a user (EPerson) as a member of the specified group.
@@ -1206,6 +1216,23 @@ class DSpaceClient:
         if '_embedded' in r_json:
             if 'resourcepolicies' in r_json['_embedded']:
                 return r_json['_embedded']['resourcepolicies'][0]
+
+    def create_resource_policy(self, resource_uuid, data, group_uuid=None, eperson_uuid=None):
+        """
+        Creates a resource policy by sending a POST request to the API endpoint.
+        """
+        url = f'{self.API_ENDPOINT}/authz/resourcepolicies'
+        params = {"resource": resource_uuid}
+        if group_uuid:
+            params["group"] = group_uuid
+        if eperson_uuid:
+            params["eperson"] = eperson_uuid
+
+        r = self.api_post(url, params=params, json=data)
+        if r.status_code == 201:
+            return True
+        return False
+
 
     def update_resource_policy_group(self, policy_id, group_uuid):
         """
