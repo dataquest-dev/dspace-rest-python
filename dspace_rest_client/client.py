@@ -1111,7 +1111,7 @@ class DSpaceClient:
             _logger.error("Provided 'eperson' is not an instance of User.")
             return False
 
-        url = f' {self.API_ENDPOINT}/eperson/groups/{group.uuid}/epersons'
+        url = f'{self.API_ENDPOINT}/eperson/groups/{group.uuid}/epersons'
         eperson_uri = f'{self.API_ENDPOINT}/epersons/{eperson.uuid}'
         r = self.api_post_uri(url, params=None, uri_list=eperson_uri)
         if r.status_code == 204:
