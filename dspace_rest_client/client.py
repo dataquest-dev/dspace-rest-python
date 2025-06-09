@@ -1082,6 +1082,45 @@ class DSpaceClient:
             # that you see for other DSO types - still figuring out the best way
         return Group(api_resource=parse_json(self.create_dso(url, params=None, data=data)))
 
+    def create_submit_group(self, collection):
+        """
+        Creates a submitter group for the given collection.
+        """
+        url = f'{self.API_ENDPOINT}/core/collections/{collection.uuid}/submittersGroup'
+        r = self.api_post(url, json={}, params=None)
+        if r.status_code == 201:
+            return Group(parse_json(r))
+        return None
+
+    def add_member(self, group, eperson):
+        """
+        Adds a user (EPerson) as a member of the specified group.
+
+        Args:
+            group (Group): The group to which the user will be added.
+            eperson (User): The EPerson to be added as a member of the group.
+
+        Returns:
+            bool: True if the user was successfully added (HTTP 204), False otherwise.
+        """
+        if not isinstance(group, Group):
+            _logger.error("Provided 'group' is not an instance of Group.")
+            return False
+
+        if not isinstance(eperson, User):
+            _logger.error("Provided 'eperson' is not an instance of User.")
+            return False
+
+        url = f'{self.API_ENDPOINT}/eperson/groups/{group.uuid}/epersons'
+        eperson_uri = f'{self.API_ENDPOINT}/epersons/{eperson.uuid}'
+        r = self.api_post_uri(url, params=None, uri_list=eperson_uri)
+        if r.status_code == 204:
+            return True
+        _logger.error(f"Failed to add user {eperson.uuid} to group {group.uuid}. "
+                        f"Status code: {r.status_code}")
+        return False
+
+
     def start_workflow(self, workspace_item):
         url = f'{self.API_ENDPOINT}/workflow/workflowitems'
         res = parse_json(self.api_post_uri(url, params=None, uri_list=workspace_item))
@@ -1177,6 +1216,23 @@ class DSpaceClient:
         if '_embedded' in r_json:
             if 'resourcepolicies' in r_json['_embedded']:
                 return r_json['_embedded']['resourcepolicies'][0]
+
+    def create_resource_policy(self, resource_uuid, data, group_uuid=None, eperson_uuid=None):
+        """
+        Creates a resource policy by sending a POST request to the API endpoint.
+        """
+        url = f'{self.API_ENDPOINT}/authz/resourcepolicies'
+        params = {"resource": resource_uuid}
+        if group_uuid:
+            params["group"] = group_uuid
+        if eperson_uuid:
+            params["eperson"] = eperson_uuid
+
+        r = self.api_post(url, params=params, json=data)
+        if r.status_code == 201:
+            return True
+        return False
+
 
     def update_resource_policy_group(self, policy_id, group_uuid):
         """
