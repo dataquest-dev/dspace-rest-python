@@ -113,6 +113,7 @@ class DSpaceClient:
         self.auth_request_headers = {'User-Agent': self.USER_AGENT}
         self.request_headers = {'Content-type': 'application/json', 'User-Agent': self.USER_AGENT}
         self.list_request_headers = {'Content-type': 'text/uri-list', 'User-Agent': self.USER_AGENT}
+        self.text_plain_request_headers = {'Content-type': 'text/plain', 'User-Agent': self.USER_AGENT}
 
     def authenticate(self, retry=False):
         """
@@ -250,6 +251,35 @@ class DSpaceClient:
                 else:
                     _logger.debug("Retrying request with updated CSRF token")
                     return self.api_post_uri(url, params=params, uri_list=uri_list, retry=True)
+
+        return r
+
+    def api_post_text(self, url, params, data, retry=False):
+        """
+        Perform a POST request. Refresh XSRF token if necessary.
+        POSTs are typically used to create objects.
+        @param data:    Data in text/plain format to send as POST body
+        @param url:     DSpace REST API URL
+        @param params:  Any parameters to include (eg ?parent=abbc-....)
+        @param uri_list: One or more URIs referencing objects
+        @param retry:   Has this method already been retried? Used if we need to refresh XSRF.
+        @return:        Response from API
+        """
+        r = self.session.post(url, data=data, params=params, headers=self.text_plain_request_headers)
+        self.update_token(r)
+
+        if r.status_code == 403:
+            # 403 Forbidden
+            # If we had a CSRF failure, retry the request with the updated token
+            # After speaking in #dev it seems that these do need occasional refreshes but I suspect
+            # it's happening too often for me, so check for accidentally triggering it
+            r_json = r.json()
+            if 'message' in r_json and 'CSRF token' in r_json['message']:
+                if retry:
+                    _logger.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
+                else:
+                    _logger.debug("Retrying request with updated CSRF token")
+                    return self.api_post_text(url, params=params, data=data, retry=True)
 
         return r
 
