@@ -261,7 +261,6 @@ class DSpaceClient:
         @param data:    Data in text/plain format to send as POST body
         @param url:     DSpace REST API URL
         @param params:  Any parameters to include (eg ?parent=abbc-....)
-        @param uri_list: One or more URIs referencing objects
         @param retry:   Has this method already been retried? Used if we need to refresh XSRF.
         @return:        Response from API
         """
