@@ -199,7 +199,7 @@ class DSpaceClient:
         # solution copied from the past
         elif r.status_code == 401:
             r_json = parse_json(r)
-            if 'message' in r_json and 'Authentication is required' in r_json['message']:
+            if r_json and 'message' in r_json and 'Authentication is required' in r_json['message']:
                 if retry:
                     logging.error(
                         'API Post: Already retried... something must be wrong')
@@ -244,7 +244,7 @@ class DSpaceClient:
         # solution copied from the past
         elif r.status_code == 401:
             r_json = parse_json(r)
-            if 'message' in r_json and 'Authentication is required' in r_json['message']:
+            if r_json and 'message' in r_json and 'Authentication is required' in r_json['message']:
                 if retry:
                     logging.error(
                         'API Post: Already retried... something must be wrong')
@@ -276,7 +276,7 @@ class DSpaceClient:
             # After speaking in #dev it seems that these do need occasional refreshes but I suspect
             # it's happening too often for me, so check for accidentally triggering it
             r_json = r.json()
-            if 'message' in r_json and 'CSRF token' in r_json['message']:
+            if r_json and 'message' in r_json and 'CSRF token' in r_json['message']:
                 if retry:
                     _logger.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
                 else:
@@ -322,7 +322,7 @@ class DSpaceClient:
             _logger.debug(r.text)
             # Parse response
             r_json = parse_json(r)
-            if 'message' in r_json and 'CSRF token' in r_json['message']:
+            if r_json and 'message' in r_json and 'CSRF token' in r_json['message']:
                 if retry:
                     _logger.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
                 else:
@@ -351,7 +351,7 @@ class DSpaceClient:
             logging.debug(r.text)
             # Parse response
             r_json = parse_json(r)
-            if 'message' in r_json and 'CSRF token' in r_json['message']:
+            if r_json and 'message' in r_json and 'CSRF token' in r_json['message']:
                 if retry:
                     logging.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
                 else:
@@ -380,7 +380,7 @@ class DSpaceClient:
             _logger.debug(r.text)
             # Parse response
             r_json = parse_json(r)
-            if 'message' in r_json and 'CSRF token' in r_json['message']:
+            if r_json and 'message' in r_json and 'CSRF token' in r_json['message']:
                 if retry:
                     _logger.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
                 else:
@@ -434,7 +434,7 @@ class DSpaceClient:
             # it's happening too often for me, so check for accidentally triggering it
             _logger.debug(r.text)
             r_json = parse_json(r)
-            if 'message' in r_json and 'CSRF token' in r_json['message']:
+            if r_json and 'message' in r_json and 'CSRF token' in r_json['message']:
                 if retry:
                     _logger.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
                 else:
