@@ -203,9 +203,9 @@ class DSpaceClient:
             if r_json and 'message' in r_json and 'Authentication is required' in r_json['message']:
                 if retry:
                     _logger.error(
-                        'API Post: Already retried... something must be wrong')
+                        'API Get: Already retried... something must be wrong')
                 else:
-                    _logger.debug("API Post: Retrying request with updated CSRF token")
+                    _logger.debug("API Get: Retrying request with updated CSRF token")
                     # try to authenticate
                     self.authenticate()
                     # Try to authenticate and repeat the request 3 times -
