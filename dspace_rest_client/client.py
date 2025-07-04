@@ -181,7 +181,8 @@ class DSpaceClient:
         if headers is None:
             headers = self.request_headers
         r = self.session.get(url, params=params, data=data, headers=headers)
-
+        self.update_token(r)
+        
         if r.status_code == 403:
             # 403 Forbidden
             # If we had a CSRF failure, retry the request with the updated token
@@ -211,7 +212,6 @@ class DSpaceClient:
                     # if it won't happen log error
                     return self.api_get(url, params=params, data=data, headers=headers, retry=True)
 
-        self.update_token(r)
         return r
 
     def api_post(self, url, params, json, retry=False):
