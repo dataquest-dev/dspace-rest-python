@@ -168,18 +168,49 @@ class DSpaceClient:
         r = self.api_post(self.LOGIN_URL, None, None)
         self.update_token(r)
 
-    def api_get(self, url, params=None, data=None, headers=None):
+    def api_get(self, url, params=None, data=None, headers=None, retry=False):
         """
         Perform a GET request. Refresh XSRF token if necessary.
         @param url:     DSpace REST API URL
         @param params:  any parameters to include (eg ?page=0)
         @param data:    any data to supply (typically not relevant for GET)
         @param headers: any override headers (eg. with short-lived token for download)
+        @param retry:   Has this method already been retried? Used if we need to refresh XSRF.
         @return:        Response from API
         """
         if headers is None:
             headers = self.request_headers
         r = self.session.get(url, params=params, data=data, headers=headers)
+
+        if r.status_code == 403:
+            # 403 Forbidden
+            # If we had a CSRF failure, retry the request with the updated token
+            # After speaking in #dev it seems that these do need occasional refreshes but I suspect
+            # it's happening too often for me, so check for accidentally triggering it
+            r_json = parse_json(r)
+            if 'message' in r_json and 'CSRF token' in r_json['message']:
+                if retry:
+                    _logger.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
+                else:
+                    _logger.debug("Retrying request with updated CSRF token")
+                    return self.api_get(url, params=params, data=data, headers=headers, retry=True)
+
+        # we need to log in again, if there is login error. This is a bad
+        # solution copied from the past
+        elif r.status_code == 401:
+            r_json = parse_json(r)
+            if 'message' in r_json and 'Authentication is required' in r_json['message']:
+                if retry:
+                    logging.error(
+                        'API Post: Already retried... something must be wrong')
+                else:
+                    logging.debug("API Post: Retrying request with updated CSRF token")
+                    # try to authenticate
+                    self.authenticate()
+                    # Try to authenticate and repeat the request 3 times -
+                    # if it won't happen log error
+                    return self.api_get(url, params=params, data=data, headers=headers, retry=True)
+
         self.update_token(r)
         return r
 
@@ -252,33 +283,21 @@ class DSpaceClient:
                     _logger.debug("Retrying request with updated CSRF token")
                     return self.api_post_uri(url, params=params, uri_list=uri_list, retry=True)
 
-        return r
-
-    def api_post_text(self, url, params, data, retry=False):
-        """
-        Perform a POST request. Refresh XSRF token if necessary.
-        POSTs are typically used to create objects.
-        @param data:    Data in text/plain format to send as POST body
-        @param url:     DSpace REST API URL
-        @param params:  Any parameters to include (eg ?parent=abbc-....)
-        @param retry:   Has this method already been retried? Used if we need to refresh XSRF.
-        @return:        Response from API
-        """
-        r = self.session.post(url, data=data, params=params, headers=self.text_plain_request_headers)
-        self.update_token(r)
-
-        if r.status_code == 403:
-            # 403 Forbidden
-            # If we had a CSRF failure, retry the request with the updated token
-            # After speaking in #dev it seems that these do need occasional refreshes but I suspect
-            # it's happening too often for me, so check for accidentally triggering it
-            r_json = r.json()
-            if 'message' in r_json and 'CSRF token' in r_json['message']:
+        # we need to log in again, if there is login error. This is a bad
+        # solution copied from the past
+        elif r.status_code == 401:
+            r_json = parse_json(r)
+            if 'message' in r_json and 'Authentication is required' in r_json['message']:
                 if retry:
-                    _logger.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
+                    logging.error(
+                        'API Post: Already retried... something must be wrong')
                 else:
-                    _logger.debug("Retrying request with updated CSRF token")
-                    return self.api_post_text(url, params=params, data=data, retry=True)
+                    logging.debug("API Post: Retrying request with updated CSRF token")
+                    # try to authenticate
+                    self.authenticate()
+                    # Try to authenticate and repeat the request 3 times -
+                    # if it won't happen log error
+                    return self.api_post_uri(url, params=params, uri_list=uri_list, retry=True)
 
         return r
 
