@@ -13,7 +13,8 @@ import json
 
 
 __all__ = ['DSpaceObject', 'HALResource', 'ExternalDataObject', 'SimpleDSpaceObject', 'Community',
-           'Collection', 'Item', 'Bundle', 'Bitstream', 'User', 'Group', 'ResourcePolicy']
+           'Collection', 'Item', 'Bundle', 'Bitstream', 'BitstreamFormat', 'User', 'Group',
+           'ResourcePolicy', 'SearchResult']
 
 
 class HALResource:
@@ -390,6 +391,59 @@ class Bitstream(DSpaceObject):
         return {**dso_dict, **bitstream_dict}
 
 
+class BitstreamFormat(AddressableHALResource):
+    """
+    Bitstream format: https://github.com/DSpace/RestContract/blob/main/bitstreamformats.md
+    example:
+        {
+          "shortDescription": "XML",
+          "description": "Extensible Markup Language",
+          "mimetype": "text/xml",
+          "supportLevel": "KNOWN",
+          "internal": false,
+          "extensions": [
+                  "xml"
+          ],
+          "type": "bitstreamformat"
+        }
+    """
+    shortDescription = None
+    description = None
+    mimetype = None
+    supportLevel = None
+    internal = False
+    extensions = []
+    type = 'bitstreamformat'
+
+    def __init__(self, api_resource):
+        super(BitstreamFormat, self).__init__(api_resource)
+        if 'shortDescription' in api_resource:
+            self.shortDescription = api_resource['shortDescription']
+        if 'description' in api_resource:
+            self.description = api_resource['description']
+        if 'mimetype' in api_resource:
+            self.mimetype = api_resource['mimetype']
+        if 'supportLevel' in api_resource:
+            self.supportLevel = api_resource['supportLevel']
+        if 'internal' in api_resource:
+            self.internal = api_resource['internal']
+        if 'extensions' in api_resource:
+            self.extensions = api_resource['extensions'].copy()
+
+    def as_dict(self):
+        parent_dict = super(BitstreamFormat, self).as_dict()
+        bf_dict = {
+            'shortDescription': self.shortDescription,
+            'description': self.description,
+            'mimetype': self.mimetype,
+            'supportLevel': self.supportLevel,
+            'internal': self.internal,
+            'extensions': self.extensions,
+            'type': self.type
+        }
+        return {**parent_dict, **bf_dict}
+
+
 class Group(DSpaceObject):
     """
     Extends DSpaceObject to implement specific attributes and methods for groups (aka. EPersonGroups)
@@ -500,6 +554,38 @@ class WorkspaceItem(InProgressSubmission):
 
     def as_dict(self):
         return super(WorkspaceItem, self).as_dict()
+
+class SearchResult(HALResource):
+    """
+    Represents a search result from the DSpace discovery search endpoint.
+    Contains query information, applied filters, sort details, and embedded search results.
+    """
+    query = None
+    scope = None
+    appliedFilters = []
+    type = None
+
+    def __init__(self, api_resource):
+        super(SearchResult, self).__init__(api_resource)
+        if 'query' in api_resource:
+            self.query = api_resource['query']
+        if 'scope' in api_resource:
+            self.scope = api_resource['scope']
+        if 'appliedFilters' in api_resource:
+            self.appliedFilters = api_resource['appliedFilters'].copy()
+        if 'type' in api_resource:
+            self.type = api_resource['type']
+
+    def as_dict(self):
+        parent_dict = super(SearchResult, self).as_dict()
+        sr_dict = {
+            'query': self.query,
+            'scope': self.scope,
+            'appliedFilters': self.appliedFilters,
+            'type': self.type
+        }
+        return {**parent_dict, **sr_dict}
+
 
 class EntityType(AddressableHALResource):
     """

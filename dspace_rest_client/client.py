@@ -16,13 +16,37 @@ better abstracting and handling of HAL-like API responses, plus just all the oth
 """
 import json
 import logging
+import functools
 import os
 from uuid import UUID
 
 import requests
 from requests import Request
 
-from .models import *
+try:
+    import smart_open
+except ImportError:
+    smart_open = None
+
+from .models import (
+    SimpleDSpaceObject,
+    Community,
+    Collection,
+    Item,
+    Bundle,
+    Bitstream,
+    BitstreamFormat,
+    User,
+    Group,
+    DSpaceObject,
+    ResourcePolicy,
+    SearchResult,
+)
+try:
+    from importlib.metadata import version
+    __version__ = version("dspace-rest-client")
+except Exception:
+    __version__ = "unknown"
 
 __all__ = ['DSpaceClient']
 
@@ -46,6 +70,16 @@ def parse_json(response):
         else:
             _logger.error(f'Error parsing response JSON: {err}. Response is None')
     return response_json
+
+
+def parse_params(params=None, embeds=None):
+    if params is None:
+        params = {}
+    if embeds is None:
+        embeds = []
+    if len(embeds) > 0:
+        params["embed"] = ",".join(embeds)
+    return params
 
 
 class DSpaceClient:
@@ -87,6 +121,42 @@ class DSpaceClient:
         REMOVE = 'remove'
         REPLACE = 'replace'
         MOVE = 'move'
+
+    def paginated(embed_name, item_constructor, embedding=lambda x: x):
+        """
+        @param embed_name: The key under '_embedded' in the JSON response that contains the
+        resources to be paginated. (e.g. 'collections', 'objects', 'items', etc.)
+        @param item_constructor: A callable that takes a resource dictionary and returns an item.
+        @param embedding: Optional post-fetch processing lambda (default: identity function)
+        for each resource
+        @return: A decorator that, when applied to a method, follows pagination and yields
+        each resource
+        """
+
+        def decorator(fun):
+            @functools.wraps(fun)
+            def decorated(self, *args, **kwargs):
+                def do_paginate(url, params):
+                    params["size"] = self.ITER_PAGE_SIZE
+
+                    while url is not None:
+                        r_json = embedding(self.fetch_resource(url, params))
+                        for resource in r_json.get("_embedded", {}).get(embed_name, []):
+                            yield item_constructor(resource)
+
+                        if "next" in r_json.get("_links", {}):
+                            url = r_json["_links"]["next"]["href"]
+                            # assume the 'next' link contains all the
+                            # params needed for the correct next page:
+                            params = {}
+                        else:
+                            url = None
+
+                return fun(do_paginate, self, *args, **kwargs)
+
+            return decorated
+
+        return decorator
 
     def __init__(self, api_endpoint=API_ENDPOINT, username=USERNAME, password=PASSWORD, solr_endpoint=SOLR_ENDPOINT,
                  solr_auth=SOLR_AUTH, fake_user_agent=False, proxies=PROXY_DICT):
@@ -418,24 +488,27 @@ class DSpaceClient:
         return r
 
     # PAGINATION
-    def search_objects(self, query=None, scope=None, filters=None, page=0, size=20, sort=None, dso_type=None, details=None):
+    def search_objects(self, query=None, scope=None, filters=None, page=0, size=20, sort=None, dso_type=None,
+                        details=None, configuration='default', embeds=None):
         """
         Do a basic search with optional query, filters and dsoType params.
-        @param query:   query string
-        @param scope:   uuid to limit search scope, eg. owning collection, parent community, etc.
-        @param filters: discovery filters as dict eg. {'f.entityType': 'Publication,equals', ... }
-        @param page: page number (not like 'start' as this is not row number, but page number of size {size})
-        @param size: size of page (aka. 'rows'), affects the page parameter above
-        @param sort: sort eg. 'title,asc'
-        @param dso_type: DSO type to further filter results
-        @return:        list of DspaceObject objects constructed from API resources
+        @param query:           query string
+        @param scope:           uuid to limit search scope, eg. owning collection, parent community, etc.
+        @param filters:         discovery filters as dict eg. {'f.entityType': 'Publication,equals', ... }
+        @param page:            page number (not like 'start' as this is not row number, but page number of size {size})
+        @param size:            size of page (aka. 'rows'), affects the page parameter above
+        @param sort:            sort eg. 'title,asc'
+        @param dso_type:        DSO type to further filter results
+        @param configuration:   discovery configuration to use (default: 'default')
+        @param embeds:          optional list of embeds for HAL response
+        @return:                list of SimpleDSpaceObject objects constructed from API resources
         """
         dsos = []
         if filters is None:
             filters = {}
         url = f'{self.API_ENDPOINT}/discover/search/objects'
         # we will add params to filters, so
-        params = {}
+        params = parse_params(embeds=embeds)
         if query is not None:
             params['query'] = query
         if scope is not None:
@@ -448,6 +521,8 @@ class DSpaceClient:
             params['page'] = page
         if sort is not None:
             params['sort'] = sort
+        if configuration is not None:
+            params['configuration'] = configuration
 
         r_json = self.fetch_resource(url=url, params={**params, **filters})
 
@@ -458,12 +533,58 @@ class DSpaceClient:
             results = r_json['_embedded']['searchResult']['_embedded']['objects']
             for result in results:
                 resource = result['_embedded']['indexableObject']
-                dso = DSpaceObject(resource)
+                dso = SimpleDSpaceObject(resource)
                 dsos.append(dso)
         except (TypeError, ValueError) as err:
             _logger.error(f'error parsing search result json {err}')
 
         return dsos
+
+    @paginated(
+        "objects",
+        lambda x: SimpleDSpaceObject(
+            x["_embedded"]["indexableObject"]
+        ),
+        embedding=lambda x: x["_embedded"]["searchResult"],
+    )
+    def search_objects_iter(
+        do_paginate,
+        self,
+        query=None,
+        scope=None,
+        filters=None,
+        dso_type=None,
+        sort=None,
+        configuration='default',
+        embeds=None,
+    ):
+        """
+        Do a basic search as in search_objects, automatically handling pagination
+        @param query:           query string
+        @param scope:           uuid to limit search scope
+        @param filters:         discovery filters as dict
+        @param sort:            sort eg. 'title,asc'
+        @param dso_type:        DSO type to further filter results
+        @param configuration:   Search (discovery) configuration to apply to the query
+        @param embeds:          Optional list of embeds
+        @return:                Iterator of SimpleDSpaceObject
+        """
+        if filters is None:
+            filters = {}
+        url = f'{self.API_ENDPOINT}/discover/search/objects'
+        params = parse_params(embeds=embeds)
+        if query is not None:
+            params['query'] = query
+        if scope is not None:
+            params['scope'] = scope
+        if dso_type is not None:
+            params['dsoType'] = dso_type
+        if sort is not None:
+            params['sort'] = sort
+        if configuration is not None:
+            params['configuration'] = configuration
+
+        return do_paginate(url, {**params, **filters})
 
     def fetch_resource(self, url, params=None):
         """
@@ -504,34 +625,36 @@ class DSpaceClient:
             _logger.error(f'Invalid resource UUID: {uuid}')
             return None
 
-    def get_dso(self, url, uuid):
+    def get_dso(self, url, uuid, params=None, embeds=None):
         """
         Base 'get DSpace Object' function.
         Uses fetch_resource which itself calls parse_json on the raw response before returning.
         @param url:     DSpace REST API URL
         @param uuid:    UUID of object to retrieve
+        @param params:  Optional params
+        @param embeds:  Optional list of embeds for HAL response
         @return:        Parsed JSON response from fetch_resource
         """
         try:
             # Try to get UUID version to test validity
             id = UUID(uuid).version
             url = f'{url}/{uuid}'
-            return self.api_get(url, None, None)
+            return self.api_get(url, params=parse_params(params, embeds), data=None)
         except ValueError:
             _logger.error(f'Invalid DSO UUID: {uuid}')
             return None
 
-    def create_dso(self, url, params, data):
+    def create_dso(self, url, params, data, embeds=None):
         """
         Base 'create DSpace Object' function.
         Takes JSON data and some POST parameters and returns the response.
         @param url:     DSpace REST API URL
         @param params:  Any parameters to pass in the request, eg. parentCollection for a new item
         @param data:    JSON data expected by the REST API to create the new resource
-        @return:        Raw API response. New DSO *could* be returned but for error checking purposes, raw response
-                        is nice too and can always be parsed from this response later.
+        @param embeds:  Optional list of embeds for HAL response
+        @return:        Raw API response.
         """
-        r = self.api_post(url, params, data)
+        r = self.api_post(url, parse_params(params, embeds), data)
         if r.status_code == 201:
             # 201 Created - success!
             new_dso = parse_json(r)
@@ -540,12 +663,13 @@ class DSpaceClient:
             _logger.error(f'create operation failed: {r.status_code}: {r.text} ({url})')
         return r
 
-    def update_dso(self, dso, params=None):
+    def update_dso(self, dso, params=None, embeds=None):
         """
         Update DSpaceObject. Takes a DSpaceObject and any optional parameters. Will send a PUT update to the remote
         object and return the updated object, typed correctly.
         :param dso:     DSpaceObject with locally updated data, to send in PUT request
         :param params:  Optional parameters
+        :param embeds:  Optional list of embeds for HAL response
         :return:
 
         """
@@ -574,7 +698,7 @@ class DSpaceClient:
             if 'type' in data:
                 data.pop('type')
             """
-            r = self.api_put(url, params=params, json=data)
+            r = self.api_put(url, params=parse_params(params, embeds), json=data)
             if r.status_code == 200:
                 # 200 OK - success!
                 updated_dso = dso_type(parse_json(r))
@@ -624,7 +748,7 @@ class DSpaceClient:
             return None
 
     # PAGINATION
-    def get_bundles(self, parent=None, uuid=None, page=0, size=20, sort=None):
+    def get_bundles(self, parent=None, uuid=None, page=0, size=20, sort=None, embeds=None):
         """
         Get bundles for an item
         @param parent:  python Item object, from which the UUID will be referenced in the URL.
@@ -643,7 +767,7 @@ class DSpaceClient:
             url = f'{self.API_ENDPOINT}/core/items/{parent.uuid}/bundles'
         else:
             return list()
-        params = {}
+        params = parse_params(embeds=embeds)
         if size is not None:
             params['size'] = size
         if page is not None:
@@ -663,6 +787,21 @@ class DSpaceClient:
 
         return bundles
 
+    @paginated('bundles', Bundle)
+    def get_bundles_iter(do_paginate, self, parent, sort=None, embeds=None):
+        """
+        Get bundles for an item, automatically handling pagination
+        @param parent:  python Item object, from which the UUID will be referenced in the URL.
+        @param embeds:  Optional list of resources to embed in response JSON
+        @return:        Iterator of Bundle
+        """
+        url = f'{self.API_ENDPOINT}/core/items/{parent.uuid}/bundles'
+        params = parse_params(embeds=embeds)
+        if sort is not None:
+            params['sort'] = sort
+
+        return do_paginate(url, params)
+
     def create_bundle(self, parent=None, name='ORIGINAL'):
         """
         Create new bundle in the specified item
@@ -679,7 +818,7 @@ class DSpaceClient:
         return Bundle(api_resource=parse_json(self.api_post(url, params=None, json={'name': name, 'metadata': {}})))
 
     # PAGINATION
-    def get_bitstreams(self, uuid=None, bundle=None, page=0, size=20, sort=None):
+    def get_bitstreams(self, uuid=None, bundle=None, page=0, size=20, sort=None, embeds=None):
         """
         Get a specific bitstream UUID, or all bitstreams for a specific bundle
         @param uuid:    UUID of a specific bitstream to retrieve
@@ -698,7 +837,7 @@ class DSpaceClient:
                 url = f'{self.API_ENDPOINT}/core/bundles/{bundle.uuid}/bitstreams'
                 _logger.info(f'Cannot find bundle bitstream links, will try to construct manually: {url}')
         # Perform the actual request. By now, our URL and parameter should be properly set
-        params = {}
+        params = parse_params(embeds=embeds)
         if size is not None:
             params['size'] = size
         if page is not None:
@@ -712,6 +851,25 @@ class DSpaceClient:
                 for bitstream_resource in r_json['_embedded']['bitstreams']:
                     bitstreams.append(Bitstream(bitstream_resource))
                 return bitstreams
+
+    @paginated('bitstreams', Bitstream)
+    def get_bitstreams_iter(do_paginate, self, bundle, sort=None, embeds=None):
+        """
+        Get all bitstreams for a specific bundle, automatically handling pagination
+        @param bundle:  A python Bundle object to parse for bitstream links to retrieve
+        @param embeds:  Optional list of resources to embed in response JSON
+        @return:        Iterator of Bitstream
+        """
+        if 'bitstreams' in bundle.links:
+            url = bundle.links['bitstreams']['href']
+        else:
+            url = f'{self.API_ENDPOINT}/core/bundles/{bundle.uuid}/bitstreams'
+            _logger.warning(f'Cannot find bundle bitstream links, will try to construct manually: {url}')
+        params = parse_params(embeds=embeds)
+        if sort is not None:
+            params['sort'] = sort
+
+        return do_paginate(url, params)
 
     def create_bitstream(self, bundle=None, name=None, path=None, mime=None, metadata=None, retry=False):
         """
@@ -736,7 +894,10 @@ class DSpaceClient:
         if metadata is None:
             metadata = {}
         url = f'{self.API_ENDPOINT}/core/bundles/{bundle.uuid}/bitstreams'
-        file = (name, open(path, 'rb'), mime)
+        if smart_open is not None:
+            file = (name, smart_open.open(path, 'rb'), mime)
+        else:
+            file = (name, open(path, 'rb'), mime)
         files = {'file': file}
         properties = {'name': name, 'metadata': metadata, 'bundleName': bundle.name}
         payload = {'properties': json.dumps(properties) + ';application/json'}
@@ -779,7 +940,7 @@ class DSpaceClient:
             return r
 
     # PAGINATION
-    def get_communities(self, uuid=None, page=0, size=20, sort=None, top=False):
+    def get_communities(self, uuid=None, page=0, size=20, sort=None, top=False, embeds=None):
         """
         Get communities - either all, for single UUID, or all top-level (ie no sub-communities)
         @param uuid:    string UUID if getting single community
@@ -789,7 +950,7 @@ class DSpaceClient:
         @return:        list of communities, or None if error
         """
         url = f'{self.API_ENDPOINT}/core/communities'
-        params = {}
+        params = parse_params(embeds=embeds)
         if size is not None:
             params['size'] = size
         if page is not None:
@@ -826,6 +987,25 @@ class DSpaceClient:
         # Return list (populated or empty)
         return communities
 
+    @paginated('communities', Community)
+    def get_communities_iter(do_paginate, self, sort=None, top=False, embeds=None):
+        """
+        Get communities as an iterator, automatically handling pagination
+        @param top:     whether to restrict search to top communities (default: false)
+        @param embeds:  list of resources to embed in response JSON
+        @return:        Iterator of Community
+        """
+        if top:
+            url = f'{self.API_ENDPOINT}/core/communities/search/top'
+        else:
+            url = f'{self.API_ENDPOINT}/core/communities'
+
+        params = parse_params(embeds=embeds)
+        if sort is not None:
+            params['sort'] = sort
+
+        return do_paginate(url, params)
+
     def create_community(self, parent, data):
         """
         Create a community, either top-level or beneath a given parent
@@ -841,7 +1021,7 @@ class DSpaceClient:
             params = {'parent': parent}
         return Community(api_resource=parse_json(self.create_dso(url, params, data)))
 
-    def get_collections(self, uuid=None, community=None, page=0, size=20, sort=None):
+    def get_collections(self, uuid=None, community=None, page=0, size=20, sort=None, embeds=None):
         """
         Get collections - all, or single UUID, or for a specific community
         @param uuid:        UUID string. If present, just a single collection is returned (overrides community arg)
@@ -852,7 +1032,7 @@ class DSpaceClient:
                             for consistency of handling results, even the uuid search will be a list of one
         """
         url = f'{self.API_ENDPOINT}/core/collections'
-        params = {}
+        params = parse_params(embeds=embeds)
         if size is not None:
             params['size'] = size
         if page is not None:
@@ -891,6 +1071,25 @@ class DSpaceClient:
         # Return list (populated or empty)
         return collections
 
+    @paginated('collections', Collection)
+    def get_collections_iter(do_paginate, self, community=None, sort=None, embeds=None):
+        """
+        Get collections as an iterator, automatically handling pagination
+        @param community:   Community object. If present, collections for a community
+        @param embeds:      Optional list of resources to embed in response JSON
+        @return:            Iterator of Collection
+        """
+        url = f'{self.API_ENDPOINT}/core/collections'
+        params = parse_params(embeds=embeds)
+        if sort is not None:
+            params['sort'] = sort
+
+        if community is not None:
+            if 'collections' in community.links and 'href' in community.links['collections']:
+                url = community.links['collections']['href']
+
+        return do_paginate(url, params)
+
     def create_collection(self, parent, data):
         """
         Create collection beneath a given parent community.
@@ -923,7 +1122,7 @@ class DSpaceClient:
             _logger.error(f'Invalid item UUID: {uuid}')
             return None
 
-    def get_items(self, page=0, size=20):
+    def get_items(self, page=0, size=20, embeds=None):
         """
         Get all archived items for a logged-in administrator. Admin only! Usually you will want to
         use search or browse methods instead of this method
@@ -931,7 +1130,7 @@ class DSpaceClient:
         """
         url = f'{self.API_ENDPOINT}/core/items'
         items = list()
-        params = {}
+        params = parse_params(embeds=embeds)
         if size is not None:
             params['size'] = size
         if page is not None:
@@ -988,6 +1187,35 @@ class DSpaceClient:
             _logger.error('Need a valid item')
             return None
         return self.update_dso(item, params=None)
+
+    def create_item_version(self, item_uuid, summary=None, embeds=None):
+        """
+        Create a new version of an existing item.
+        @param item_uuid:   UUID of the item to version
+        @param summary:     Optional summary text for the new version
+        @param embeds:      Optional list of resources to embed in response JSON
+        @return:            JSON response containing the new version information or None if an error occurs
+        """
+        url = f'{self.API_ENDPOINT}/versioning/versions'
+        params = parse_params(embeds=embeds)
+        if summary is not None:
+            params['summary'] = summary
+
+        # Construct the item URI
+        item_uri = f'{self.API_ENDPOINT}/core/items/{item_uuid}'
+
+        # Send the POST request with Content-Type:text/uri-list
+        response = self.api_post_uri(url, params=params, uri_list=item_uri)
+
+        if response.status_code == 201:
+            # 201 Created - Success
+            new_version = parse_json(response)
+            _logger.info(f'Created new version for item {item_uuid}')
+            return new_version
+        else:
+            _logger.error(f'Error creating item version: {response.status_code} {response.text}')
+
+        return None
 
     def add_metadata(self, dso, field, value, language=None, authority=None, confidence=-1, place=''):
         """
@@ -1067,10 +1295,10 @@ class DSpaceClient:
         return self.delete_dso(user)
 
     # PAGINATION
-    def get_users(self, page=0, size=20, sort=None):
+    def get_users(self, page=0, size=20, sort=None, embeds=None):
         url = f'{self.API_ENDPOINT}/eperson/epersons'
         users = list()
-        params = {}
+        params = parse_params(embeds=embeds)
         if size is not None:
             params['size'] = size
         if page is not None:
@@ -1084,6 +1312,36 @@ class DSpaceClient:
                 for user_resource in r_json['_embedded']['epersons']:
                     users.append(User(user_resource))
         return users
+
+    @paginated('epersons', User)
+    def get_users_iter(do_paginate, self, sort=None, embeds=None):
+        """
+        Get an iterator of users (epersons), automatically handling pagination
+        @param sort:     Optional sort parameter
+        @param embeds:   Optional list of resources to embed in response JSON
+        @return:         Iterator of User
+        """
+        url = f'{self.API_ENDPOINT}/eperson/epersons'
+        params = parse_params(embeds=embeds)
+        if sort is not None:
+            params['sort'] = sort
+
+        return do_paginate(url, params)
+
+    @paginated('groups', Group)
+    def search_groups_by_metadata_iter(do_paginate, self, query, embeds=None):
+        """
+        Search for groups by metadata
+        @param query:   Search query (UUID or group name)
+        @param embeds:  Optional list of resources to embed in response JSON
+        @return:        Iterator of Group
+        """
+        url = f'{self.API_ENDPOINT}/eperson/groups/search/byMetadata'
+        if query is None:
+            query = ''
+        params = parse_params({'query': query}, embeds=embeds)
+
+        return do_paginate(url, params)
 
     def create_group(self, group):
         """
@@ -1140,6 +1398,78 @@ class DSpaceClient:
 
         _logger.error('Could not retrieve short-lived token')
         return None
+
+    def resolve_identifier_to_dso(self, identifier=None):
+        """
+        Resolve a DSO identifier (uuid, handle, DOI, etc.) to a DSO URI
+        Useful for resolving handles to objects, etc.
+        @param identifier: a persistent identifier for an object like handle, doi, uuid
+        @return: resolved DSpaceObject or error
+        """
+        if identifier is not None:
+            url = f'{self.API_ENDPOINT}/pid/find'
+            r = self.api_get(url, params={'id': identifier})
+            if r.status_code == 200:
+                r_json = parse_json(r)
+                if r_json is not None and 'uuid' in r_json:
+                    return DSpaceObject(api_resource=r_json)
+            elif r.status_code == 404:
+                _logger.error(f'Not found: {identifier}')
+            else:
+                _logger.error(f'Error resolving identifier {identifier} to DSO: {r.status_code}')
+
+    @paginated('resourcepolicies', ResourcePolicy)
+    def get_resource_policies_iter(do_paginate, self, parent=None, action=None, embeds=None):
+        """
+        Get resource policies (as an iterator) for a given parent object and action
+        @param parent: UUID of an object to which the policy applies
+        @param action: uppercase string matching the DSpace Constants action (READ, WRITE, etc)
+        @param embeds: Optional embeds to return with the search results (e.g. group)
+        """
+        if parent is None:
+            _logger.error('Parent UUID is required')
+            return []
+        url = f'{self.API_ENDPOINT}/authz/resourcepolicies/search/resource'
+        params = parse_params({'uuid': parent}, embeds=embeds)
+        if action is not None:
+            params['action'] = action
+
+        return do_paginate(url, params)
+
+    def create_resource_policy(self, resource_policy, parent=None, eperson=None, group=None):
+        """
+        Create a new resource policy attached to an object (parent)
+        @param resource_policy: python ResourcePolicy object containing all the data expected by the REST API
+        @param parent: UUID of a parent object to which this policy applies
+        @param eperson: EPerson UUID to which this policy applies (optional, but eperson xor group param is required)
+        @param group: Group UUID to which this policy applies (optional, but eperson xor group param is required)
+        @return: ResourcePolicy object constructed from the API response
+        """
+        if not isinstance(resource_policy, ResourcePolicy):
+            _logger.error('ResourcePolicy object is required')
+            return None
+        if parent is None:
+            _logger.error('DSpace Object UUID is required')
+            return None
+
+        params = parse_params({'resource': parent})
+        if eperson:
+            params['eperson'] = eperson
+        elif group:
+            params['group'] = group
+        else:
+            _logger.error('Either EPerson or Group UUID is required')
+            return None
+
+        url = f'{self.API_ENDPOINT}/authz/resourcepolicies'
+        data = resource_policy.as_dict()
+        r = self.api_post(url, params=params, json=data)
+        if r.status_code == 200 or r.status_code == 201:
+            new_policy = parse_json(r)
+            _logger.info(f'{new_policy["type"]} {new_policy["id"]} created successfully!')
+            return ResourcePolicy(api_resource=new_policy)
+        else:
+            _logger.error(f'create operation failed: {r.status_code}: {r.text} ({url})')
 
     def solr_query(self, query, filters=None, fields=None, start=0, rows=999999999):
         if fields is None:
