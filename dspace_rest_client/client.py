@@ -239,7 +239,7 @@ class DSpaceClient:
             # After speaking in #dev it seems that these do need occasional refreshes but I suspect
             # it's happening too often for me, so check for accidentally triggering it
             r_json = parse_json(r)
-            if 'message' in r_json and 'CSRF token' in r_json['message']:
+            if 'message' in (r_json or {}) and 'CSRF token' in r_json['message']:
                 if retry:
                     _logger.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
                 else:
@@ -250,7 +250,7 @@ class DSpaceClient:
         # solution copied from the past
         elif r.status_code == 401:
             r_json = parse_json(r)
-            if 'message' in r_json and 'Authentication is required' in r_json['message']:
+            if 'message' in (r_json or {}) and 'Authentication is required' in r_json['message']:
                 if retry:
                     logging.error(
                         'API Post: Already retried... something must be wrong')
@@ -260,7 +260,7 @@ class DSpaceClient:
                     self.authenticate()
                     # Try to authenticate and repeat the request 3 times -
                     # if it won't happen log error
-                    return self.api_post(url, params=params, json=json, retry=False, timeout=timeout)
+                    return self.api_post(url, params=params, json=json, retry=True, timeout=timeout)
         return r
 
     def api_post_uri(self, url, params, uri_list, retry=False):
