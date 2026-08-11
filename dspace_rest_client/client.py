@@ -1261,8 +1261,12 @@ class DSpaceClient:
     def get_clarinlruallowances_by_bitstream_and_user(self, bitstream_uuid, user_uuid):
         """
         Fetch user allowances for a specific bitstream and user.
+
+        Note: the collection name must be plural. DSpace 9 routes REST repositories by their
+        declared plural name, so the singular form returns 404 "The repository type
+        core.clarinlruallowance was not found". The plural form works on DSpace 7 too.
         """
-        url = f'{self.API_ENDPOINT}/core/clarinlruallowance/search/byBitstreamAndUser'
+        url = f'{self.API_ENDPOINT}/core/clarinlruallowances/search/byBitstreamAndUser'
         params = {'bitstreamUUID': bitstream_uuid, 'userUUID': user_uuid}
         try:
             response = self.api_get(url, params=params)
