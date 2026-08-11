@@ -1262,7 +1262,7 @@ class DSpaceClient:
         """
         Fetch user allowances for a specific bitstream and user.
         """
-        url = f'{self.API_ENDPOINT}/core/clarinlruallowance/search/byBitstreamAndUser'
+        url = f'{self.API_ENDPOINT}/core/clarinlruallowances/search/byBitstreamAndUser'
         params = {'bitstreamUUID': bitstream_uuid, 'userUUID': user_uuid}
         try:
             response = self.api_get(url, params=params)
