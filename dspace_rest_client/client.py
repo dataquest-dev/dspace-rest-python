@@ -475,6 +475,9 @@ class DSpaceClient:
         """
         r = self.api_get(url, params, None)
         if r.status_code != 200:
+            # record the failing response so callers can tell a 404 (the
+            # resource is gone) from a transient 5xx before we drop the body
+            self._last_err = r
             _logger.error(f'Error encountered fetching resource: {r.text}')
             return None
         # ValueError / JSON handling moved to static method
@@ -698,6 +701,12 @@ class DSpaceClient:
         if sort is not None:
             params['sort'] = sort
         r_json = self.fetch_resource(url, params=params)
+        if r_json is None and getattr(self._last_err, 'status_code', None) == 404:
+            # the item (or bundle) no longer exists - a deleted item simply has
+            # no bundles, which is a clean empty result, not a crash. any other
+            # failure falls through and still surfaces to the caller.
+            _logger.info(f'No bundles: resource not found (404) [{url}]')
+            return bundles
         try:
             if single_result:
                 bundles.append(Bundle(r_json))
