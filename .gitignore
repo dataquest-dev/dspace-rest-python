@@ -1,6 +1,10 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
+build/
+dist/
+.pytest_cache/
 .python-version
 Pipfile.lock
 __pypackages__/
