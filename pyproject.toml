@@ -1,0 +1,121 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dspace-rest-client"
+version = "0.1.10"
+description = "A DSpace 7 REST API client library"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "BSD-3-Clause" }
+authors = [
+    { name = "Kim Shepherd", email = "kim@the-library-code.de" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "requests",
+]
+
+[project.optional-dependencies]
+solr = ["pysolr>=3.9"]
+dev = [
+    "pytest",
+    "requests-mock",
+    "ruff",
+    "pylint",
+    "mypy",
+]
+
+[project.urls]
+Documentation = "https://github.com/the-library-code/dspace-rest-python/blob/main/README.md"
+GitHub = "https://github.com/the-library-code/dspace-rest-python"
+Changelog = "https://github.com/the-library-code/dspace-rest-python/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+packages = ["dspace_rest_client"]
+
+[tool.setuptools.package-data]
+dspace_rest_client = ["py.typed"]
+
+[tool.autopep8]
+max_line_length = 90
+
+[tool.ruff]
+line-length = 90
+target-version = "py310"
+
+[tool.ruff.lint]
+# E = pycodestyle, F = pyflakes, T20 = flake8-print (no print())
+select = ["E", "F", "T20"]
+ignore = ["F403", "F405", "E501", "E402", "F841", "E741"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["T20"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+
+[tool.pylint.main]
+py-version = "3.10"
+jobs = 0
+
+[tool.pylint.basic]
+# DSpace REST fields are camelCase (sizeBytes, checkSum, ...) mirrored verbatim
+# as attributes; `id` is a valid short name here.
+good-names = ["i", "j", "k", "ex", "Run", "_", "id", "d", "f"]
+no-docstring-rgx = "^_"
+
+[tool.pylint.design]
+max-args = 10
+max-attributes = 15
+max-branches = 15
+max-locals = 20
+max-public-methods = 20
+max-returns = 8
+max-statements = 60
+
+[tool.pylint.format]
+max-line-length = 90
+max-module-lines = 1200
+
+[tool.pylint.imports]
+allow-wildcard-with-all = false
+
+[tool.pylint.logging]
+logging-format-style = "old"
+
+[tool.pylint."messages control"]
+# camelCase attrs mirror the DSpace API (invalid-name); f-strings in log calls
+# are mandated by the project (logging-fstring-interpolation); broad catches
+# guard optional/fallback paths (broad-exception-caught). import-error: pysolr
+# is an optional extra not present in every lint env. too-many-lines /
+# too-many-public-methods: DSpaceClient is a wide REST facade (one method per
+# endpoint); splitting into endpoint mixins is a tracked follow-up, not a
+# blocker. fixme: upstream TODO markers are informational, not defects.
+disable = [
+    "missing-function-docstring",
+    "missing-class-docstring",
+    "missing-module-docstring",
+    "invalid-name",
+    "import-error",
+    "import-outside-toplevel",
+    "broad-exception-caught",
+    "logging-fstring-interpolation",
+    "line-too-long",
+    "too-few-public-methods",
+    "too-many-branches",
+    "too-many-locals",
+    "too-many-nested-blocks",
+    "too-many-positional-arguments",
+    "too-many-lines",
+    "too-many-public-methods",
+    "fixme",
+]
