@@ -1,1 +1,47 @@
-from . import *
+"""DSpace 7 REST API client."""
+
+from .client import DSpaceClient
+from .models import (
+    HALResource,
+    AddressableHALResource,
+    ExternalDataObject,
+    DSpaceObject,
+    SimpleDSpaceObject,
+    Item,
+    Community,
+    Collection,
+    Bundle,
+    Bitstream,
+    Group,
+    User,
+    InProgressSubmission,
+    WorkspaceItem,
+    EntityType,
+    RelationshipType,
+    License,
+    Label,
+    ResourcePolicy,
+)
+
+__all__ = [
+    "DSpaceClient",
+    "HALResource",
+    "AddressableHALResource",
+    "ExternalDataObject",
+    "DSpaceObject",
+    "SimpleDSpaceObject",
+    "Item",
+    "Community",
+    "Collection",
+    "Bundle",
+    "Bitstream",
+    "Group",
+    "User",
+    "InProgressSubmission",
+    "WorkspaceItem",
+    "EntityType",
+    "RelationshipType",
+    "License",
+    "Label",
+    "ResourcePolicy",
+]
