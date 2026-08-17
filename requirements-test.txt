@@ -1,0 +1,5 @@
+# Test-only dependencies for the dspace_rest_client suite.
+# The library itself only needs `requests` (see setup.py); these add the test
+# runner and an HTTP transport mock so tests never touch a real DSpace server.
+pytest>=7.0
+requests-mock>=1.11
