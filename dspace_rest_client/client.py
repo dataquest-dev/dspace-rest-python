@@ -733,12 +733,17 @@ class DSpaceClient:
         if sort is not None:
             params['sort'] = sort
         r_json = self.fetch_resource(url, params=params)
-        if r_json is None and getattr(self._last_err, 'status_code', None) == 404:
-            # the item (or bundle) no longer exists - a deleted item simply has
-            # no bundles, which is a clean empty result, not a crash. any other
-            # failure falls through and still surfaces to the caller.
-            _logger.info(f'No bundles: resource not found (404) [{url}]')
-            return bundles
+        if r_json is None:
+            status = getattr(self._last_err, 'status_code', None)
+            if status == 404:
+                # a deleted item (or bundle) simply has no bundles, which is a
+                # clean empty result, not a crash.
+                _logger.info(f'No bundles: resource not found (404) [{url}]')
+                return bundles
+            # any other failure surfaces with its status + url, not as an opaque
+            # 'NoneType is not subscriptable' further down, so the caller can
+            # see what failed and retry.
+            raise RuntimeError(f'Failed to fetch bundles: HTTP {status} [{url}]')
         try:
             if single_result:
                 bundles.append(Bundle(r_json))
@@ -800,13 +805,16 @@ class DSpaceClient:
         if sort is not None:
             params['sort'] = sort
         r_json = self.fetch_resource(url, params=params)
-        if r_json is None and getattr(self._last_err, 'status_code', None) == 404:
-            # the bundle (or item) is gone - no bitstreams, a clean empty result
-            # rather than a crash. Mirrors get_bundles (#16). Any other failure
-            # (a transient 5xx, say) falls through and still surfaces to the
-            # caller so it is retried, not silently recorded as "no bitstreams".
-            _logger.info(f'No bitstreams: resource not found (404) [{url}]')
-            return list()
+        if r_json is None:
+            status = getattr(self._last_err, 'status_code', None)
+            if status == 404:
+                # the bundle (or item) is gone - no bitstreams, a clean empty
+                # result rather than a crash. Mirrors get_bundles.
+                _logger.info(f'No bitstreams: resource not found (404) [{url}]')
+                return list()
+            # a transient 5xx must NOT masquerade as "no bitstreams"; surface it
+            # with status + url so the caller can retry, not an opaque TypeError.
+            raise RuntimeError(f'Failed to fetch bitstreams: HTTP {status} [{url}]')
         bitstreams = list()
         if '_embedded' in r_json and 'bitstreams' in r_json['_embedded']:
             for bitstream_resource in r_json['_embedded']['bitstreams']:
