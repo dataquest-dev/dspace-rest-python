@@ -9,8 +9,11 @@ import unittest
 
 import requests_mock
 
+import logging
+
 import _helpers  # noqa: F401
 from _helpers import make_client, API
+from dspace_rest_client.client import DSpaceClient
 
 
 class TestConstructor(unittest.TestCase):
@@ -23,6 +26,18 @@ class TestConstructor(unittest.TestCase):
 
     def test_default_last_err_is_none(self):
         self.assertIsNone(make_client().last_err)
+
+    def test_timeout_default_and_override(self):
+        # every request must be bounded so a stalled server can't hang forever
+        self.assertEqual(make_client().timeout, DSpaceClient.DEFAULT_TIMEOUT)
+        self.assertEqual(DSpaceClient(API, "u", "p", timeout=5).timeout, 5)
+
+    def test_library_does_not_hijack_root_logger(self):
+        # importing the client must not call logging.basicConfig; the module
+        # logger carries a NullHandler so records drop unless the app opts in.
+        lg = logging.getLogger("dspace.client")
+        self.assertTrue(
+            any(isinstance(h, logging.NullHandler) for h in lg.handlers))
 
 
 class TestAuthenticate(unittest.TestCase):
