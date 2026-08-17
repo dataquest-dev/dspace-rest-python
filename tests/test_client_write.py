@@ -14,8 +14,9 @@ import requests_mock
 
 import _helpers  # noqa: F401
 from _helpers import (
-    make_client, sent_params, bundle_json, bitstream_json, item_json,
-    API, ITEM_UUID, COLLECTION_UUID, BITSTREAM_UUID, ANON_GROUP_UUID)
+    make_client, sent_params, multipart_properties, bundle_json,
+    bitstream_json, item_json, API, ITEM_UUID, COLLECTION_UUID,
+    BITSTREAM_UUID, ANON_GROUP_UUID)
 from dspace_rest_client.models import Item, Bundle, Bitstream
 
 
@@ -100,6 +101,21 @@ class TestCreateBundle(unittest.TestCase):
     def test_none_parent_returns_none(self):
         self.assertIsNone(make_client().create_bundle(parent=None))
 
+    def test_server_error_returns_truthy_uuidless_bundle(self):
+        # CHARACTERIZATION: like create_item, create_bundle wraps the response
+        # unconditionally -> a truthy Bundle with uuid=None on failure, not None.
+        # The importer's `if not bundle` guard (reposync/_importer.py:118-120)
+        # never fires because a Bundle instance is always truthy. Pinned.
+        c = make_client()
+        parent = Item(item_json(ITEM_UUID))
+        with requests_mock.Mocker() as m:
+            m.post(f"{API}/core/items/{ITEM_UUID}/bundles",
+                   status_code=500, text="boom")
+            out = c.create_bundle(parent=parent)
+            self.assertIsInstance(out, Bundle)
+            self.assertIsNone(out.uuid)
+            self.assertTrue(out)
+
 
 class TestCreateItem(unittest.TestCase):
 
@@ -114,6 +130,27 @@ class TestCreateItem(unittest.TestCase):
             self.assertEqual(out.uuid, "newu")
             self.assertEqual(sent_params(m.last_request)["owningCollection"],
                              [COLLECTION_UUID])
+            # the POST body is item.as_dict() - this is how the importer's built
+            # metadata actually reaches DSpace, so pin it, not just the uuid.
+            body = m.last_request.json()
+            self.assertEqual(body["name"], "New thesis")
+            self.assertEqual(body["type"], "item")
+            self.assertEqual(body["metadata"], {})
+            self.assertIs(body["inArchive"], True)
+
+    def test_server_error_returns_truthy_uuidless_item(self):
+        # CHARACTERIZATION: create_item wraps the response unconditionally, so a
+        # failed create yields a truthy Item with uuid=None, NOT None. The
+        # importer guards with `if dso is None` (reposync/_importer.py:127-129),
+        # which therefore never fires on failure. Pinned; see the fail-safe note.
+        c = make_client()
+        item = Item({"name": "x", "metadata": {}})
+        with requests_mock.Mocker() as m:
+            m.post(f"{API}/core/items", status_code=500, text="boom")
+            out = c.create_item(parent=COLLECTION_UUID, item=item)
+            self.assertIsInstance(out, Item)
+            self.assertIsNone(out.uuid)
+            self.assertTrue(out)  # truthy despite the failure
 
     def test_non_item_returns_none(self):
         self.assertIsNone(make_client().create_item(
@@ -145,9 +182,15 @@ class TestCreateBitstream(unittest.TestCase):
             self.assertIsInstance(bs, Bitstream)
             self.assertEqual(bs.uuid, "bsnew")
             self.assertEqual(bs.sizeBytes, 20)
-            # the request really was a multipart file upload
+            # the request really was a multipart file upload...
             self.assertIn("multipart/form-data",
                           m.last_request.headers["Content-Type"])
+            # ...carrying the name/bundleName/metadata that actually attach the
+            # bitstream's metadata in DSpace (reposync/_utils.create_new_bitstream)
+            props = multipart_properties(m.last_request)
+            self.assertEqual(props["name"], "a.pdf")
+            self.assertEqual(props["bundleName"], "ORIGINAL")  # == bundle.name
+            self.assertEqual(props["metadata"], {"dc.title": [{"value": "a.pdf"}]})
 
     def test_server_error_returns_none(self):
         c = make_client()

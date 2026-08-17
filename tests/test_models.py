@@ -73,9 +73,12 @@ class TestBundleBitstream(unittest.TestCase):
         # get_bitstreams(bundle=...) prefers this embedded link over a manually
         # constructed URL, so it is part of the contract.
         b = Bundle({"uuid": "b1", "name": "ORIGINAL", "type": "bundle",
-                    "metadata": {},
+                    "metadata": {"dc.title": [{"value": "ORIGINAL"}]},
                     "_links": {"bitstreams": {"href": "http://x/bundles/b1/bitstreams"}}})
         self.assertEqual((b.uuid, b.name, b.type), ("b1", "ORIGINAL", "bundle"))
+        # .metadata is parsed from the response (unlike .type, a class constant)
+        # and is serialised by export/_dspace.py:323, so pin it.
+        self.assertEqual(b.metadata, {"dc.title": [{"value": "ORIGINAL"}]})
         self.assertEqual(b.links["bitstreams"]["href"],
                          "http://x/bundles/b1/bitstreams")
 
@@ -90,6 +93,10 @@ class TestBundleBitstream(unittest.TestCase):
         self.assertEqual(b.sizeBytes, 2048)
         self.assertEqual(b.sequenceId, 3)
         self.assertEqual(b.checkSum["value"], "deadbeef")
+        # the checksum verifier compares checkSumAlgorithm == "MD5"
+        # (reposync/_files.py:187-189); .metadata is serialised by the exporter.
+        self.assertEqual(b.checkSum["checkSumAlgorithm"], "MD5")
+        self.assertEqual(b.metadata, {"dc.title": [{"value": "f.pdf"}]})
         d = b.as_dict()
         self.assertEqual(d["sizeBytes"], 2048)
         self.assertEqual(d["checkSum"]["value"], "deadbeef")

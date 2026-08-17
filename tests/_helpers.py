@@ -7,7 +7,9 @@ objects. That way a change to the library that breaks URL construction or
 response parsing - the two things downstream code (this repo) depends on -
 fails a test instead of silently shipping.
 """
+import json
 import os
+import re
 import sys
 from urllib.parse import urlparse, parse_qs
 
@@ -50,6 +52,21 @@ def sent_params(request) -> dict:
     original ``request.url`` keeps the real casing.
     """
     return parse_qs(urlparse(request.url).query)
+
+
+def multipart_properties(request) -> dict:
+    """Parse the JSON ``properties`` part of a create_bitstream multipart body.
+
+    ``create_bitstream`` sends ``properties = json.dumps({name, metadata,
+    bundleName}) + ';application/json'`` as a form field. This is what actually
+    carries the bitstream's metadata to DSpace, so tests assert on it.
+    """
+    body = request.body
+    if isinstance(body, bytes):
+        body = body.decode("utf-8", "replace")
+    m = re.search(r'name="properties"\r?\n\r?\n(.*?);application/json',
+                  body, re.DOTALL)
+    return json.loads(m.group(1)) if m else None
 
 
 # --- response-body builders (shape mirrors the DSpace 7 REST API) --------- #

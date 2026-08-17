@@ -20,10 +20,14 @@ class TestSearchObjects(unittest.TestCase):
 
     def test_builds_url_params_and_parses_objects(self):
         c = make_client()
+        # every caller's next step is dso.as_dict() + dso.links['self']['href']
+        # (repo._search.dso2dict, mcp._dso_to_dict), so the search result must
+        # carry both - include a self link to prove it survives parsing.
+        obj1 = item_json("u1", "A", _links={"self": {"href": f"{API}/items/u1"}})
         body = {"_embedded": {"searchResult": {
             "page": {"totalElements": 2, "size": 100},
             "_embedded": {"objects": [
-                {"_embedded": {"indexableObject": item_json("u1", "A")}},
+                {"_embedded": {"indexableObject": obj1}},
                 {"_embedded": {"indexableObject": item_json("u2", "B")}},
             ]}}}}
         with requests_mock.Mocker() as m:
@@ -32,6 +36,9 @@ class TestSearchObjects(unittest.TestCase):
             res = c.search_objects(query="dc.identifier:123", size=100,
                                    page=0, details=details)
             self.assertEqual([d.uuid for d in res], ["u1", "u2"])
+            # the two accessors every consumer reads off a search hit
+            self.assertEqual(res[0].links["self"]["href"], f"{API}/items/u1")
+            self.assertEqual(res[0].as_dict()["uuid"], "u1")
             p = sent_params(m.last_request)
             self.assertEqual(p["query"], ["dc.identifier:123"])
             self.assertEqual(p["size"], ["100"])
@@ -132,7 +139,10 @@ class TestGetBitstreams(unittest.TestCase):
 
     def test_by_bundle_uses_embedded_link(self):
         c = make_client()
-        href = f"{API}/core/bundles/bnd/bitstreams"
+        # href deliberately NOT equal to the fallback URL (.../bundles/bnd/
+        # bitstreams): if the embedded-link branch were removed the client would
+        # build the fallback, which is unmocked, and this test would fail.
+        href = f"{API}/core/bundles/HREF-ONLY-PATH/bitstreams"
         bundle = Bundle(bundle_json("bnd", bitstreams_href=href))
         body = embedded("bitstreams", [bitstream_json("s1", "a.pdf", size=10)])
         with requests_mock.Mocker() as m:
@@ -140,6 +150,7 @@ class TestGetBitstreams(unittest.TestCase):
             bs = c.get_bitstreams(bundle=bundle, size=500)
             self.assertEqual([b.uuid for b in bs], ["s1"])
             self.assertEqual(bs[0].sizeBytes, 10)
+            self.assertEqual(m.last_request.url.split("?")[0], href)
             self.assertEqual(sent_params(m.last_request)["size"], ["500"])
 
     def test_by_bundle_without_link_constructs_url(self):
@@ -147,14 +158,33 @@ class TestGetBitstreams(unittest.TestCase):
         bundle = Bundle(bundle_json("bnd2"))  # no _links -> manual URL
         with requests_mock.Mocker() as m:
             m.get(f"{API}/core/bundles/bnd2/bitstreams",
-                  json=embedded("bitstreams", []))
-            self.assertEqual(c.get_bitstreams(bundle=bundle), [])
+                  json=embedded("bitstreams",
+                                [bitstream_json("s9", "x.pdf", size=7)]))
+            bs = c.get_bitstreams(bundle=bundle)
+            # proves both the constructed URL AND parsing on the fallback path
+            self.assertEqual([b.uuid for b in bs], ["s9"])
+            self.assertEqual(bs[0].sizeBytes, 7)
 
     def test_no_args_returns_empty_list(self):
         c = make_client()
         with requests_mock.Mocker() as m:
             self.assertEqual(c.get_bitstreams(), [])
             self.assertEqual(m.call_count, 0)
+
+    def test_non_200_currently_raises_no_failsafe(self):
+        # CHARACTERIZATION of a known sharp edge: unlike get_bundles (which since
+        # PR #16 returns [] on a 404), get_bitstreams has no fail-safe - a non-200
+        # makes fetch_resource return None which this method then subscripts, so
+        # it raises. The consumers (export/_dspace, reposync/_files) iterate the
+        # result unguarded, so this is a real crash risk. Pinned deliberately: if
+        # the library is hardened to return [], update this test to assert that.
+        c = make_client()
+        bundle = Bundle(bundle_json("bnd2"))
+        with requests_mock.Mocker() as m:
+            m.get(f"{API}/core/bundles/bnd2/bitstreams",
+                  status_code=500, text="boom")
+            with self.assertRaises(Exception):
+                c.get_bitstreams(bundle=bundle)
 
 
 class TestGetCollections(unittest.TestCase):
@@ -220,11 +250,28 @@ class TestGetResourcePolicy(unittest.TestCase):
             self.assertEqual(p["uuid"], [BITSTREAM_UUID])
             self.assertEqual(p["action"], ["READ"])
 
-    def test_no_embedded_returns_empty_list(self):
+    def test_action_none_omits_the_action_filter(self):
+        # The bitstream export path calls this via the ingest wrapper whose
+        # default is action=None (ingest/_dspace.py get_resourcepolicy), which
+        # must fetch policies of ALL actions - so no `action` param is sent.
+        c = make_client()
+        body = embedded("resourcepolicies", [
+            policy_json(pid=1, action="READ"),
+            policy_json(pid=2, action="WRITE")])
+        with requests_mock.Mocker() as m:
+            m.get(f"{API}/authz/resourcepolicies/search/resource", json=body)
+            rps = c.get_resourcepolicy(BITSTREAM_UUID, action=None)
+            self.assertEqual([rp.action for rp in rps], ["READ", "WRITE"])
+            p = sent_params(m.last_request)
+            self.assertEqual(p["uuid"], [BITSTREAM_UUID])
+            self.assertNotIn("action", p)
+
+    def test_empty_result_set_returns_empty_list(self):
+        # The live endpoint returns an _embedded envelope even when empty.
         c = make_client()
         with requests_mock.Mocker() as m:
             m.get(f"{API}/authz/resourcepolicies/search/resource",
-                  json={"page": {"totalElements": 0}})
+                  json=embedded("resourcepolicies", []))
             self.assertEqual(c.get_resourcepolicy(BITSTREAM_UUID), [])
 
     def test_invalid_uuid_returns_none_without_request(self):
