@@ -26,8 +26,11 @@ from .models import *
 
 __all__ = ['DSpaceClient']
 
-logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 _logger = logging.getLogger("dspace.client")
+# A library must not configure the root logger - that is the consuming
+# application's job. Attach a NullHandler so records are dropped unless the
+# application opts in to logging.
+_logger.addHandler(logging.NullHandler())
 
 
 def parse_json(response):
@@ -79,6 +82,9 @@ class DSpaceClient:
         USER_AGENT = os.environ['USER_AGENT']
     verbose = False
     ITER_PAGE_SIZE = 20
+    # Default per-request timeout in seconds so a stalled server cannot hang the
+    # client forever; override via the `timeout` constructor argument.
+    DEFAULT_TIMEOUT = 60
     PROXY_DICT = dict(http=os.environ["PROXY_URL"],https=os.environ["PROXY_URL"]) if "PROXY_URL" in os.environ else dict()
 
     # Simple enum for patch operation types
@@ -89,7 +95,7 @@ class DSpaceClient:
         MOVE = 'move'
 
     def __init__(self, api_endpoint=API_ENDPOINT, username=USERNAME, password=PASSWORD, solr_endpoint=SOLR_ENDPOINT,
-                 solr_auth=SOLR_AUTH, fake_user_agent=False, proxies=PROXY_DICT):
+                 solr_auth=SOLR_AUTH, fake_user_agent=False, proxies=PROXY_DICT, timeout=None):
         """
         Accept optional API endpoint, username, password arguments using the OS environment variables as defaults
         :param api_endpoint:    base path to DSpace REST API, eg. http://localhost:8080/server/api
@@ -105,6 +111,7 @@ class DSpaceClient:
         self.proxies = proxies
         self.solr = None
         self._last_err = None
+        self.timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT
         try:
             import pysolr
             self.solr = pysolr.Solr(url=solr_endpoint, always_commit=True, timeout=300, auth=solr_auth)
@@ -137,7 +144,7 @@ class DSpaceClient:
         # Get and update CSRF token
         r = self.session.post(self.LOGIN_URL, data={'user': self.USERNAME, 'password': self.PASSWORD},
                               headers=self.auth_request_headers,
-                              proxies=self.proxies)
+                              proxies=self.proxies, timeout=self.timeout)
         self.update_token(r)
 
         if r.status_code == 403:
@@ -164,7 +171,7 @@ class DSpaceClient:
 
         # Get and check authentication status
         r = self.session.get(f'{self.API_ENDPOINT}/authn/status', headers=self.request_headers,
-                             proxies=self.proxies)
+                             proxies=self.proxies, timeout=self.timeout)
         if r.status_code == 200:
             r_json = parse_json(r)
             if 'authenticated' in r_json and r_json['authenticated'] is True:
@@ -214,7 +221,7 @@ class DSpaceClient:
         if headers is None:
             headers = self.request_headers
         r = self.session.get(url, params=params, data=data, headers=headers,
-                             proxies=self.proxies)
+                             proxies=self.proxies, timeout=self.timeout)
         self.update_token(r)
         return r
 
@@ -230,7 +237,7 @@ class DSpaceClient:
         """
         self._last_err = None
         r = self.session.post(url, json=json, params=params, headers=self.request_headers,
-                              proxies=self.proxies, timeout=timeout)
+                              proxies=self.proxies, timeout=timeout if timeout is not None else self.timeout)
         self.update_token(r)
 
         if r.status_code == 403:
@@ -252,10 +259,10 @@ class DSpaceClient:
             r_json = parse_json(r)
             if 'message' in (r_json or {}) and 'Authentication is required' in r_json['message']:
                 if retry:
-                    logging.error(
+                    _logger.error(
                         'API Post: Already retried... something must be wrong')
                 else:
-                    logging.debug("API Post: Retrying request with updated CSRF token")
+                    _logger.debug("API Post: Retrying request with updated CSRF token")
                     # try to authenticate
                     self.authenticate()
                     # Try to authenticate and repeat the request 3 times -
@@ -275,7 +282,7 @@ class DSpaceClient:
         """
         self._last_err = None
         r = self.session.post(url, data=uri_list, params=params, headers=self.list_request_headers,
-                              proxies=self.proxies)
+                              proxies=self.proxies, timeout=self.timeout)
         self.update_token(r)
 
         if r.status_code == 403:
@@ -305,7 +312,7 @@ class DSpaceClient:
         """
         self._last_err = None
         r = self.session.put(url, params=params, json=json, headers=self.request_headers,
-                             proxies=self.proxies)
+                             proxies=self.proxies, timeout=self.timeout)
         self.update_token(r)
 
         if r.status_code == 403:
@@ -337,7 +344,7 @@ class DSpaceClient:
         """
         self._last_err = None
         r = self.session.put(url, params=params, data=uri_list, headers=self.list_request_headers,
-                             proxies=self.proxies)
+                             proxies=self.proxies, timeout=self.timeout)
         self.update_token(r)
 
         if r.status_code == 403:
@@ -368,7 +375,7 @@ class DSpaceClient:
         """
         self._last_err = None
         r = self.session.delete(url, params=params, headers=self.request_headers,
-                                proxies=self.proxies)
+                                proxies=self.proxies, timeout=self.timeout)
         self.update_token(r)
 
         if r.status_code == 403:
@@ -401,15 +408,15 @@ class DSpaceClient:
         """
         self._last_err = None
         if url is None:
-            logging.error('Missing required URL argument')
+            _logger.error('Missing required URL argument')
             return None
         if path is None:
-            logging.error('Need valid path eg. /withdrawn or /metadata/dc.title/0/language')
+            _logger.error('Need valid path eg. /withdrawn or /metadata/dc.title/0/language')
             return None
         if (operation == self.PatchOperation.ADD or operation == self.PatchOperation.REPLACE
                 or operation == self.PatchOperation.MOVE) and value is None:
             # missing value required for add/replace/move operations
-            logging.error('Missing required "value" argument for add/replace/move operations')
+            _logger.error('Missing required "value" argument for add/replace/move operations')
             return None
 
         # compile patch data
@@ -426,7 +433,7 @@ class DSpaceClient:
         # set headers
         # perform patch request
         r = self.session.patch(url, json=[data], params=params, headers=self.request_headers,
-                               proxies=self.proxies)
+                               proxies=self.proxies, timeout=self.timeout)
         self.update_token(r)
 
         if r.status_code == 403:
@@ -635,7 +642,7 @@ class DSpaceClient:
             return None
         dso_type = type(dso)
         if not isinstance(dso, SimpleDSpaceObject):
-            logging.error('Only SimpleDSpaceObject types (eg Item, Collection, Community) '
+            _logger.error('Only SimpleDSpaceObject types (eg Item, Collection, Community) '
                   'are supported by generic update_dso PUT.')
             return dso
         try:
@@ -682,11 +689,11 @@ class DSpaceClient:
         """
         if dso is None:
             if url is None:
-                logging.error('Need a DSO or a URL to delete')
+                _logger.error('Need a DSO or a URL to delete')
                 return None
         else:
             if not isinstance(dso, SimpleDSpaceObject):
-                logging.error('Only SimpleDSpaceObject types (eg Item, Collection, Community, EPerson) '
+                _logger.error('Only SimpleDSpaceObject types (eg Item, Collection, Community, EPerson) '
                       'are supported by generic update_dso PUT.')
                 return dso
             # Get self URI from HAL links
@@ -844,15 +851,17 @@ class DSpaceClient:
         if metadata is None:
             metadata = {}
         url = f'{self.API_ENDPOINT}/core/bundles/{bundle.uuid}/bitstreams'
-        file = (name, open(path, 'rb'), mime)
-        files = {'file': file}
-        properties = {'name': name, 'metadata': metadata, 'bundleName': bundle.name}
-        payload = {'properties': json.dumps(properties) + ';application/json'}
-        h = self.session.headers
-        h.update({'Content-Encoding': 'gzip', 'User-Agent': self.USER_AGENT})
-        req = Request('POST', url, data=payload, headers=h, files=files)
-        prepared_req = self.session.prepare_request(req)
-        r = self.session.send(prepared_req, proxies=self.proxies)
+        # open the file in a context manager so the handle is always closed,
+        # even if prepare/send raises (it was previously leaked to the GC).
+        with open(path, 'rb') as fh:
+            files = {'file': (name, fh, mime)}
+            properties = {'name': name, 'metadata': metadata, 'bundleName': bundle.name}
+            payload = {'properties': json.dumps(properties) + ';application/json'}
+            h = self.session.headers
+            h.update({'Content-Encoding': 'gzip', 'User-Agent': self.USER_AGENT})
+            req = Request('POST', url, data=payload, headers=h, files=files)
+            prepared_req = self.session.prepare_request(req)
+            r = self.session.send(prepared_req, proxies=self.proxies, timeout=self.timeout)
         if 'DSPACE-XSRF-TOKEN' in r.headers:
             t = r.headers['DSPACE-XSRF-TOKEN']
             _logger.debug('Updating token to ' + t)
@@ -1200,7 +1209,7 @@ class DSpaceClient:
 
     def delete_user(self, user):
         if not isinstance(user, User):
-            logging.error('Must be a valid user')
+            _logger.error('Must be a valid user')
             return None
         return self.delete_dso(user)
 
@@ -1430,16 +1439,21 @@ class DSpaceClient:
         return None
 
 
-    def create_clarinlruallowances(self, bitstream_uuid):
+    def create_clarinlruallowances(self, bitstream_uuid, metadata_payload=None):
         """
-        Create clarinlruallowances for a bitstream for logged user
-        by managing user metadata of bitstream.
+        Create clarinlruallowances for a bitstream for the logged-in user by
+        managing the bitstream's user metadata.
+        @param bitstream_uuid:   target bitstream UUID
+        @param metadata_payload: list of {"metadataKey", "metadataValue"} dicts.
+                                 Required - there is no meaningful default (the
+                                 previous hardcoded "Test" value was leftover
+                                 debug data, not usable for real callers).
         """
+        if not metadata_payload:
+            _logger.error('create_clarinlruallowances requires a metadata_payload')
+            return False
         url = f'{self.API_ENDPOINT}/core/clarinusermetadata/manage'
         params = {'bitstreamUUID': bitstream_uuid}
-        metadata_payload = [
-            {"metadataKey": "NAME", "metadataValue": "Test"}
-        ]
         try:
             response = self.api_post(url, json=metadata_payload, params=params)
             if response.status_code == 200:

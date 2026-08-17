@@ -193,5 +193,27 @@ class TestCreateBitstream(unittest.TestCase):
                 mime="application/pdf"))
 
 
+class TestCreateClarinAllowances(unittest.TestCase):
+
+    def test_requires_metadata_payload(self):
+        # the previous hardcoded {"metadataValue":"Test"} is gone; with no
+        # payload the call refuses and makes no request.
+        c = make_client()
+        with requests_mock.Mocker() as m:
+            self.assertFalse(c.create_clarinlruallowances(BITSTREAM_UUID))
+            self.assertEqual(m.call_count, 0)
+
+    def test_posts_supplied_payload(self):
+        c = make_client()
+        payload = [{"metadataKey": "NAME", "metadataValue": "real value"}]
+        with requests_mock.Mocker() as m:
+            m.post(f"{API}/core/clarinusermetadata/manage", status_code=200,
+                   json={})
+            self.assertTrue(c.create_clarinlruallowances(BITSTREAM_UUID, payload))
+            self.assertEqual(m.last_request.json(), payload)
+            self.assertEqual(sent_params(m.last_request)["bitstreamUUID"],
+                             [BITSTREAM_UUID])
+
+
 if __name__ == "__main__":
     unittest.main()

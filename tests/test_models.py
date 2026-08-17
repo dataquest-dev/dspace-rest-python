@@ -102,6 +102,13 @@ class TestBundleBitstream(unittest.TestCase):
         self.assertEqual(d["checkSum"]["value"], "deadbeef")
         self.assertEqual(d["sequenceId"], 3)
 
+    def test_bitstream_from_none_does_not_crash(self):
+        # some cache/None paths construct Bitstream(None); it must not raise the
+        # way it used to on the membership checks in __init__.
+        b = Bitstream(None)
+        self.assertEqual(b.type, "bitstream")
+        self.assertIsNone(b.uuid)
+
 
 class TestResourcePolicy(unittest.TestCase):
 
