@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [ dtq, dtq-dev, main ]
+    branches: [ dtq ]
   pull_request:
 
 permissions:
