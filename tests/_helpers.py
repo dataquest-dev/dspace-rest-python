@@ -66,7 +66,10 @@ def multipart_properties(request) -> dict:
         body = body.decode("utf-8", "replace")
     m = re.search(r'name="properties"\r?\n\r?\n(.*?);application/json',
                   body, re.DOTALL)
-    return json.loads(m.group(1)) if m else None
+    # fail the test loudly rather than returning None and deferring the error
+    assert m is not None, \
+        "create_bitstream multipart body has no JSON 'properties' part"
+    return json.loads(m.group(1))
 
 
 # --- response-body builders (shape mirrors the DSpace 7 REST API) --------- #

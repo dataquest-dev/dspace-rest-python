@@ -171,13 +171,19 @@ class TestGetBitstreams(unittest.TestCase):
             self.assertEqual(c.get_bitstreams(), [])
             self.assertEqual(m.call_count, 0)
 
-    def test_non_200_currently_raises_no_failsafe(self):
-        # CHARACTERIZATION of a known sharp edge: unlike get_bundles (which since
-        # PR #16 returns [] on a 404), get_bitstreams has no fail-safe - a non-200
-        # makes fetch_resource return None which this method then subscripts, so
-        # it raises. The consumers (export/_dspace, reposync/_files) iterate the
-        # result unguarded, so this is a real crash risk. Pinned deliberately: if
-        # the library is hardened to return [], update this test to assert that.
+    def test_deleted_bundle_404_returns_empty_list(self):
+        # 404 -> [] fail-safe, mirroring get_bundles (#16): a gone bundle simply
+        # has no bitstreams, which is a clean empty result, not a crash.
+        c = make_client()
+        bundle = Bundle(bundle_json("bnd2"))
+        with requests_mock.Mocker() as m:
+            m.get(f"{API}/core/bundles/bnd2/bitstreams",
+                  status_code=404, json={"timestamp": "2026-01-01"})
+            self.assertEqual(c.get_bitstreams(bundle=bundle), [])
+
+    def test_non_404_error_still_surfaces(self):
+        # a transient 5xx must NOT masquerade as "no bitstreams"; it surfaces so
+        # the caller can retry, exactly as get_bundles does for non-404 errors.
         c = make_client()
         bundle = Bundle(bundle_json("bnd2"))
         with requests_mock.Mocker() as m:
@@ -185,6 +191,16 @@ class TestGetBitstreams(unittest.TestCase):
                   status_code=500, text="boom")
             with self.assertRaises(Exception):
                 c.get_bitstreams(bundle=bundle)
+
+    def test_200_without_bitstreams_returns_empty_list(self):
+        # a well-formed response with no bitstreams -> [] (not None), so callers
+        # can iterate the result unconditionally.
+        c = make_client()
+        bundle = Bundle(bundle_json("bnd2"))
+        with requests_mock.Mocker() as m:
+            m.get(f"{API}/core/bundles/bnd2/bitstreams",
+                  json={"page": {"totalElements": 0}})
+            self.assertEqual(c.get_bitstreams(bundle=bundle), [])
 
 
 class TestGetCollections(unittest.TestCase):

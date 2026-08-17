@@ -764,7 +764,13 @@ class DSpaceClient:
         if parent is None:
             return None
         url = f'{self.API_ENDPOINT}/core/items/{parent.uuid}/bundles'
-        return Bundle(api_resource=parse_json(self.api_post(url, params=None, json={'name': name, 'metadata': {}})))
+        r = self.api_post(url, params=None, json={'name': name, 'metadata': {}})
+        if r.status_code not in (200, 201):
+            # return None on failure (not a uuid-less Bundle) so callers'
+            # `if not bundle` guards actually fire
+            _logger.error(f'Failed to create bundle: {r.status_code}: {r.text}')
+            return None
+        return Bundle(api_resource=parse_json(r))
 
     # PAGINATION
     def get_bitstreams(self, uuid=None, bundle=None, page=0, size=20, sort=None):
@@ -794,12 +800,18 @@ class DSpaceClient:
         if sort is not None:
             params['sort'] = sort
         r_json = self.fetch_resource(url, params=params)
-        if '_embedded' in r_json:
-            if 'bitstreams' in r_json['_embedded']:
-                bitstreams = list()
-                for bitstream_resource in r_json['_embedded']['bitstreams']:
-                    bitstreams.append(Bitstream(bitstream_resource))
-                return bitstreams
+        if r_json is None and getattr(self._last_err, 'status_code', None) == 404:
+            # the bundle (or item) is gone - no bitstreams, a clean empty result
+            # rather than a crash. Mirrors get_bundles (#16). Any other failure
+            # (a transient 5xx, say) falls through and still surfaces to the
+            # caller so it is retried, not silently recorded as "no bitstreams".
+            _logger.info(f'No bitstreams: resource not found (404) [{url}]')
+            return list()
+        bitstreams = list()
+        if '_embedded' in r_json and 'bitstreams' in r_json['_embedded']:
+            for bitstream_resource in r_json['_embedded']['bitstreams']:
+                bitstreams.append(Bitstream(bitstream_resource))
+        return bitstreams
 
     def create_bitstream(self, bundle=None, name=None, path=None, mime=None, metadata=None, retry=False):
         """
@@ -1085,7 +1097,12 @@ class DSpaceClient:
         if not isinstance(item, Item):
             _logger.error('Need a valid item')
             return None
-        return Item(api_resource=parse_json(self.create_dso(url, params=params, data=item.as_dict())))
+        r = self.create_dso(url, params=params, data=item.as_dict())
+        if r is None or r.status_code != 201:
+            # return None on failure (not a uuid-less Item) so callers'
+            # `if dso is None` guards actually fire
+            return None
+        return Item(api_resource=parse_json(r))
 
     def update_item(self, item):
         """

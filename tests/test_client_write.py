@@ -101,20 +101,15 @@ class TestCreateBundle(unittest.TestCase):
     def test_none_parent_returns_none(self):
         self.assertIsNone(make_client().create_bundle(parent=None))
 
-    def test_server_error_returns_truthy_uuidless_bundle(self):
-        # CHARACTERIZATION: like create_item, create_bundle wraps the response
-        # unconditionally -> a truthy Bundle with uuid=None on failure, not None.
-        # The importer's `if not bundle` guard (reposync/_importer.py:118-120)
-        # never fires because a Bundle instance is always truthy. Pinned.
+    def test_server_error_returns_none(self):
+        # a failed create returns None (not a uuid-less Bundle), so the
+        # importer's `if not bundle` guard fires correctly.
         c = make_client()
         parent = Item(item_json(ITEM_UUID))
         with requests_mock.Mocker() as m:
             m.post(f"{API}/core/items/{ITEM_UUID}/bundles",
                    status_code=500, text="boom")
-            out = c.create_bundle(parent=parent)
-            self.assertIsInstance(out, Bundle)
-            self.assertIsNone(out.uuid)
-            self.assertTrue(out)
+            self.assertIsNone(c.create_bundle(parent=parent))
 
 
 class TestCreateItem(unittest.TestCase):
@@ -138,19 +133,14 @@ class TestCreateItem(unittest.TestCase):
             self.assertEqual(body["metadata"], {})
             self.assertIs(body["inArchive"], True)
 
-    def test_server_error_returns_truthy_uuidless_item(self):
-        # CHARACTERIZATION: create_item wraps the response unconditionally, so a
-        # failed create yields a truthy Item with uuid=None, NOT None. The
-        # importer guards with `if dso is None` (reposync/_importer.py:127-129),
-        # which therefore never fires on failure. Pinned; see the fail-safe note.
+    def test_server_error_returns_none(self):
+        # a failed create returns None (not a uuid-less Item), so the importer's
+        # `if dso is None` guard (reposync/_importer.py:127-129) fires correctly.
         c = make_client()
         item = Item({"name": "x", "metadata": {}})
         with requests_mock.Mocker() as m:
             m.post(f"{API}/core/items", status_code=500, text="boom")
-            out = c.create_item(parent=COLLECTION_UUID, item=item)
-            self.assertIsInstance(out, Item)
-            self.assertIsNone(out.uuid)
-            self.assertTrue(out)  # truthy despite the failure
+            self.assertIsNone(c.create_item(parent=COLLECTION_UUID, item=item))
 
     def test_non_item_returns_none(self):
         self.assertIsNone(make_client().create_item(
