@@ -56,8 +56,6 @@ jobs:
 
   typecheck:
     runs-on: ubuntu-latest
-    # Non-blocking: strict typing is being introduced incrementally.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
 
@@ -65,4 +63,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
 
       - name: Mypy
+        # Non-blocking: strict typing is being introduced incrementally, so a
+        # mypy failure is reported but does not fail the (green) job.
+        continue-on-error: true
         run: uvx --with requests --with pysolr mypy dspace_rest_client
