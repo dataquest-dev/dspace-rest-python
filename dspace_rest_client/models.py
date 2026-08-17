@@ -316,11 +316,11 @@ class Collection(SimpleDSpaceObject):
         self.type = 'collection'
 
     def as_dict(self):
-        dso_dict = super().as_dict()
         """
         Return a dict representation of this Collection, based on super with collection-specific attributes added
         @return: dict of Item for API use
         """
+        dso_dict = super().as_dict()
         collection_dict = {}
         return {**dso_dict, **collection_dict}
 
@@ -488,13 +488,13 @@ class InProgressSubmission(AddressableHALResource):
 
     def as_dict(self):
         parent_dict = super().as_dict()
-        dict = {
+        submission_dict = {
             'lastModified': self.lastModified,
             'step': self.step,
             'sections': self.sections,
             'type': self.type
         }
-        return {**parent_dict, **dict}
+        return {**parent_dict, **submission_dict}
 
 class WorkspaceItem(InProgressSubmission):
 

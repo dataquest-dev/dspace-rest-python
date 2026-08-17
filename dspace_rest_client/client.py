@@ -28,9 +28,11 @@ __all__ = ['DSpaceClient']
 
 _logger = logging.getLogger("dspace.client")
 # A library must not configure the root logger - that is the consuming
-# application's job. Attach a NullHandler so records are dropped unless the
-# application opts in to logging.
-_logger.addHandler(logging.NullHandler())
+# application's job. Attach a NullHandler (once) so records are dropped unless
+# the application opts in to logging - guarded so reloads/re-imports don't
+# accumulate duplicate handlers.
+if not any(isinstance(h, logging.NullHandler) for h in _logger.handlers):
+    _logger.addHandler(logging.NullHandler())
 
 
 def parse_json(response):
@@ -857,7 +859,9 @@ class DSpaceClient:
             files = {'file': (name, fh, mime)}
             properties = {'name': name, 'metadata': metadata, 'bundleName': bundle.name}
             payload = {'properties': json.dumps(properties) + ';application/json'}
-            h = self.session.headers
+            # copy the session headers so this request's Content-Encoding does
+            # not leak onto every subsequent request (and across threads)
+            h = dict(self.session.headers)
             h.update({'Content-Encoding': 'gzip', 'User-Agent': self.USER_AGENT})
             req = Request('POST', url, data=payload, headers=h, files=files)
             prepared_req = self.session.prepare_request(req)
