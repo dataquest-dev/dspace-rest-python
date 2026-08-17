@@ -128,6 +128,18 @@ class TestGetBundles(unittest.TestCase):
                   json={"timestamp": "2026-01-01"})
             self.assertEqual(c.get_bundles(parent=parent), [])
 
+    def test_non_404_error_raises_informative_error(self):
+        # a non-404 fetch failure surfaces with its status + url so the caller
+        # can retry, rather than an opaque 'NoneType is not subscriptable'.
+        c = make_client()
+        parent = Item(item_json(ITEM_UUID))
+        with requests_mock.Mocker() as m:
+            m.get(f"{API}/core/items/{ITEM_UUID}/bundles",
+                  status_code=500, text="boom")
+            with self.assertRaises(RuntimeError) as ctx:
+                c.get_bundles(parent=parent)
+            self.assertIn("500", str(ctx.exception))
+
     def test_no_args_returns_empty_without_request(self):
         c = make_client()
         with requests_mock.Mocker() as m:
@@ -181,16 +193,18 @@ class TestGetBitstreams(unittest.TestCase):
                   status_code=404, json={"timestamp": "2026-01-01"})
             self.assertEqual(c.get_bitstreams(bundle=bundle), [])
 
-    def test_non_404_error_still_surfaces(self):
-        # a transient 5xx must NOT masquerade as "no bitstreams"; it surfaces so
-        # the caller can retry, exactly as get_bundles does for non-404 errors.
+    def test_non_404_error_raises_informative_error(self):
+        # a transient 5xx must NOT masquerade as "no bitstreams"; it surfaces
+        # with its status + url (not a bare TypeError) so the caller can retry.
         c = make_client()
         bundle = Bundle(bundle_json("bnd2"))
         with requests_mock.Mocker() as m:
             m.get(f"{API}/core/bundles/bnd2/bitstreams",
                   status_code=500, text="boom")
-            with self.assertRaises(Exception):
+            with self.assertRaises(RuntimeError) as ctx:
                 c.get_bitstreams(bundle=bundle)
+            self.assertIn("500", str(ctx.exception))
+            self.assertIn("/core/bundles/bnd2/bitstreams", str(ctx.exception))
 
     def test_200_without_bitstreams_returns_empty_list(self):
         # a well-formed response with no bitstreams -> [] (not None), so callers
