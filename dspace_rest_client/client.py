@@ -325,6 +325,38 @@ class DSpaceClient:
 
         return r
 
+    def api_put_uri(self, url, params, uri_list, retry=False):
+        """
+        Perform a PUT request. Refresh XSRF token if necessary.
+        PUTs are typically used to update objects.
+        @param url:     DSpace REST API URL
+        @param params:  Any parameters to include (eg ?parent=abbc-....)
+        @param uri_list: One or more URIs referencing objects
+        @param retry:   Has this method already been retried? Used if we need to refresh XSRF.
+        @return:        Response from API
+        """
+        self._last_err = None
+        r = self.session.put(url, params=params, data=uri_list, headers=self.list_request_headers,
+                             proxies=self.proxies)
+        self.update_token(r)
+
+        if r.status_code == 403:
+            # 403 Forbidden
+            # If we had a CSRF failure, retry the request with the updated token
+            # After speaking in #dev it seems that these do need occasional refreshes but I suspect
+            # it's happening too often for me, so check for accidentally triggering it
+            _logger.debug(r.text)
+            # Parse response
+            r_json = parse_json(r)
+            if 'message' in r_json and 'CSRF token' in r_json['message']:
+                if retry:
+                    _logger.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
+                else:
+                    _logger.debug("Retrying request with updated CSRF token")
+                    return self.api_put_uri(url, params=params, uri_list=uri_list, retry=True)
+
+        return r
+
     def api_delete(self, url, params, retry=False):
         """
         Perform a DELETE request. Refresh XSRF token if necessary.
@@ -978,6 +1010,29 @@ class DSpaceClient:
             _logger.error(f'Invalid item UUID: {uuid}')
             return None
 
+    def get_item_by_handle(self, handle):
+        """
+        Get item based on handle.
+        """
+        if handle is None:
+            return None
+        params = {
+            "handle": handle
+        }
+        url = f'{self.API_ENDPOINT}/core/items/search/byHandle'
+        try:
+            r = self.api_get(url, params, None)
+            r_json = parse_json(r)
+            if '_embedded' in r_json:
+                if 'items' in r_json['_embedded']:
+                    items = r_json['_embedded']['items']
+                    if len(items) > 0:
+                        return Item(items[0])
+            return None
+        except (TypeError, ValueError):
+            _logger.error(f'Invalid item handle: {handle}')
+            return None
+
     def get_items(self, page=0, size=20):
         """
         Get all archived items for a logged-in administrator. Admin only! Usually you will want to
@@ -1079,9 +1134,14 @@ class DSpaceClient:
 
         return dso_type(api_resource=parse_json(r))
 
-    def remove_metadata(self, dso, field):
+    def remove_metadata(self, dso, field, place=None):
         """
-        Remove metadata
+        Remove metadata from dso based on metadata field.
+        @param dso:   DSpace object to patch
+        @param field: metadata field, e.g. dc.title
+        @param place: if None, every value of the field is removed. Otherwise only
+                      the value at this place - a 0+ integer, or a hyphen meaning "last".
+        @return:      DSpace object constructed from the API response
         """
         if dso is None or field is None or not isinstance(dso, DSpaceObject):
             _logger.error('Invalid or missing DSpace object, field or value string')
@@ -1089,13 +1149,11 @@ class DSpaceClient:
 
         dso_type = type(dso)
 
-        # Place can be 0+ integer, or a hyphen - meaning "last"
-        path = f'/metadata/{field}'
+        path = f'/metadata/{field}' if place is None else f'/metadata/{field}/{place}'
         url = dso.links['self']['href']
 
         r = self.api_patch(url=url, operation=self.PatchOperation.REMOVE, path=path, value=None)
         return dso_type(api_resource=parse_json(r))
-
 
     def create_user(self, user, token=None):
         """
@@ -1154,6 +1212,45 @@ class DSpaceClient:
             # that you see for other DSO types - still figuring out the best way
         return Group(api_resource=parse_json(self.create_dso(url, params=None, data=data)))
 
+    def create_submit_group(self, collection):
+        """
+        Creates a submitter group for the given collection.
+        """
+        url = f'{self.API_ENDPOINT}/core/collections/{collection.uuid}/submittersGroup'
+        r = self.api_post(url, json={}, params=None)
+        if r.status_code == 201:
+            return Group(parse_json(r))
+        return None
+
+    def add_member(self, group, eperson):
+        """
+        Adds a user (EPerson) as a member of the specified group.
+
+        Args:
+            group (Group): The group to which the user will be added.
+            eperson (User): The EPerson to be added as a member of the group.
+
+        Returns:
+            bool: True if the user was successfully added (HTTP 204), False otherwise.
+        """
+        if not isinstance(group, Group):
+            _logger.error("Provided 'group' is not an instance of Group.")
+            return False
+
+        if not isinstance(eperson, User):
+            _logger.error("Provided 'eperson' is not an instance of User.")
+            return False
+
+        url = f'{self.API_ENDPOINT}/eperson/groups/{group.uuid}/epersons'
+        eperson_uri = f'{self.API_ENDPOINT}/epersons/{eperson.uuid}'
+        r = self.api_post_uri(url, params=None, uri_list=eperson_uri)
+        if r.status_code == 204:
+            return True
+        _logger.error(f"Failed to add user {eperson.uuid} to group {group.uuid}. "
+                        f"Status code: {r.status_code}")
+        return False
+
+
     def start_workflow(self, workspace_item):
         url = f'{self.API_ENDPOINT}/workflow/workflowitems'
         res = parse_json(self.api_post_uri(url, params=None, uri_list=workspace_item))
@@ -1204,3 +1301,139 @@ class DSpaceClient:
         return self.solr.search(query, fq=filters, start=start, rows=rows, **{
             'fl': ','.join(fields)
         })
+
+    def get_items_from_collection(self, collection_id, page=0, size=1000):
+        """
+        Get all items
+        @return:        list of Item objects
+        """
+        url = f'{self.API_ENDPOINT}/discover/search/objects?sort=dc.date.accessioned,DESC&page={page}&size={size}&scope={collection_id}&dsoType=ITEM&embed=thumbnail'
+
+        items = list()
+        r = self.api_get(url)
+        r_json = parse_json(r)
+        if '_embedded' in r_json:
+            if 'searchResult' in r_json['_embedded']:
+                if '_embedded' in r_json['_embedded']['searchResult']:
+                    for item_resource in r_json['_embedded']['searchResult']['_embedded']['objects']:
+                        items.append(Item(item_resource['_embedded']['indexableObject']))
+
+        return items
+
+    def get_bundle_by_name(self, name, item_uuid):
+        """
+        Get a bundle by name for a specific item
+        @param name:    Name of the bundle
+        @param item_uuid: UUID of the item
+        @return:        Bundle object
+        """
+        url = f'{self.API_ENDPOINT}/core/items/{item_uuid}/bundles'
+        r_json = self.fetch_resource(url, params=None)
+        if '_embedded' in r_json:
+            if 'bundles' in r_json['_embedded']:
+                for bundle in r_json['_embedded']['bundles']:
+                    if bundle['name'] == name:
+                        return Bundle(bundle)
+        return None
+
+    def get_resource_policy(self, bundle_uuid):
+        """
+        Get a resource policy for a specific bundle
+        """
+        url = f'{self.API_ENDPOINT}/authz/resourcepolicies/search/resource?uuid={bundle_uuid}&embed=eperson&embed=group'
+        r = self.api_get(url)
+        r_json = parse_json(r)
+        if '_embedded' in r_json:
+            if 'resourcepolicies' in r_json['_embedded']:
+                return r_json['_embedded']['resourcepolicies'][0]
+
+    def create_resource_policy(self, resource_uuid, data, group_uuid=None, eperson_uuid=None):
+        """
+        Creates a resource policy by sending a POST request to the API endpoint.
+        """
+        url = f'{self.API_ENDPOINT}/authz/resourcepolicies'
+        params = {"resource": resource_uuid}
+        if group_uuid:
+            params["group"] = group_uuid
+        if eperson_uuid:
+            params["eperson"] = eperson_uuid
+
+        r = self.api_post(url, params=params, json=data)
+        if r.status_code == 201:
+            return True
+        return False
+
+
+    def update_resource_policy_group(self, policy_id, group_uuid):
+        """
+        Update a resource policy with a new group
+        """
+        url = f'{self.API_ENDPOINT}/authz/resourcepolicies/{policy_id}/group'
+        body = f'{self.API_ENDPOINT}/eperson/groups/{group_uuid}'
+        r = self.api_put_uri(url, None, body, False)
+        return r
+
+    def get_clarinlruallowances(self):
+        """
+        Fetch all clarinlruallowances.
+        """
+        url = f'{self.API_ENDPOINT}/core/clarinlruallowances'
+        try:
+            response = self.api_get(url)
+            data = parse_json(response)
+            allowances = data.get('_embedded', {}).get('clarinlruallowances')
+            if allowances:
+                return allowances
+        except Exception as e:
+            _logger.error(f"Error fetching CLARIN LRU allowances [{url}]: {e}")
+        return None
+
+    def get_clarinlruallowances_by_bitstream_and_user(self, bitstream_uuid, user_uuid):
+        """
+        Fetch user allowances for a specific bitstream and user.
+        """
+        url = f'{self.API_ENDPOINT}/core/clarinlruallowances/search/byBitstreamAndUser'
+        params = {'bitstreamUUID': bitstream_uuid, 'userUUID': user_uuid}
+        try:
+            response = self.api_get(url, params=params)
+            data = parse_json(response)
+            allowances = data.get('_embedded', {}).get('clarinlruallowances')
+            if allowances:
+                return allowances
+        except Exception as e:
+            _logger.error(f"Error fetching user allowances: {e}")
+        return None
+
+
+    def create_clarinlruallowances(self, bitstream_uuid):
+        """
+        Create clarinlruallowances for a bitstream for logged user
+        by managing user metadata of bitstream.
+        """
+        url = f'{self.API_ENDPOINT}/core/clarinusermetadata/manage'
+        params = {'bitstreamUUID': bitstream_uuid}
+        metadata_payload = [
+            {"metadataKey": "NAME", "metadataValue": "Test"}
+        ]
+        try:
+            response = self.api_post(url, json=metadata_payload, params=params)
+            if response.status_code == 200:
+                return True
+        except Exception as e:
+            _logger.error(f"Error managing user metadata: {e}")
+        return False
+
+
+    def get_user_by_email(self, email):
+        """
+        Retrieve user details using their email address.
+        """
+        url = f'{self.API_ENDPOINT}/eperson/epersons/search/byEmail'
+        params = {'email': email}
+        try:
+            response = self.api_get(url, params=params)
+            user_data = parse_json(response)
+            return User(user_data)
+        except Exception as e:
+            _logger.error(f"Error retrieving user by email {email}: {e}")
+            return None
