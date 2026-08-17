@@ -14,8 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Matches the DSpace-ISstag-integration consumer CI matrix; the library
-        # itself declares support for >=3.8 (see setup.py).
+        # Matches the DSpace-ISstag-integration consumer CI matrix.
         python-version: ["3.10", "3.12"]
 
     steps:
@@ -27,7 +26,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: |
-            setup.py
+            pyproject.toml
             requirements-test.txt
 
       - name: Install package + test deps
@@ -38,3 +37,32 @@ jobs:
 
       - name: Run tests
         run: python -m pytest tests/ -v
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Ruff
+        run: uvx ruff@0.12.7 check dspace_rest_client tests
+
+      - name: Pylint
+        run: >-
+          uvx --with requests --with pysolr pylint@3.3.7
+          --rcfile=pyproject.toml dspace_rest_client
+
+  typecheck:
+    runs-on: ubuntu-latest
+    # Non-blocking: strict typing is being introduced incrementally.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Mypy
+        run: uvx --with requests --with pysolr mypy dspace_rest_client
