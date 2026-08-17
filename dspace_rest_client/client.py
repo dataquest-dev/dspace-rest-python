@@ -14,15 +14,29 @@ better abstracting and handling of HAL-like API responses, plus just all the oth
 
 @author Kim Shepherd <kim@shepherd.nz>
 """
-import json
+from __future__ import annotations
+
+import json as _json
 import logging
 import os
+from typing import Any, Optional
 from uuid import UUID
 
 import requests
 from requests import Request
 
-from .models import *
+from .models import (
+    Bitstream,
+    Bundle,
+    Collection,
+    Community,
+    DSpaceObject,
+    Group,
+    Item,
+    ResourcePolicy,
+    SimpleDSpaceObject,
+    User,
+)
 
 __all__ = ['DSpaceClient']
 
@@ -35,7 +49,7 @@ if not any(isinstance(h, logging.NullHandler) for h in _logger.handlers):
     _logger.addHandler(logging.NullHandler())
 
 
-def parse_json(response):
+def parse_json(response) -> Any:
     """
     Simple static method to handle ValueError if JSON is invalid in response body
     @param response: the http response object (which should contain JSON)
@@ -51,6 +65,15 @@ def parse_json(response):
         else:
             _logger.error(f'Error parsing response JSON: {err}. Response is None')
     return response_json
+
+
+def _is_valid_uuid(value: str) -> bool:
+    """Return True if `value` is a well-formed UUID string, else False."""
+    try:
+        UUID(str(value))
+        return True
+    except ValueError:
+        return False
 
 
 class DSpaceClient:
@@ -87,7 +110,10 @@ class DSpaceClient:
     # Default per-request timeout in seconds so a stalled server cannot hang the
     # client forever; override via the `timeout` constructor argument.
     DEFAULT_TIMEOUT = 60
-    PROXY_DICT = dict(http=os.environ["PROXY_URL"],https=os.environ["PROXY_URL"]) if "PROXY_URL" in os.environ else dict()
+    PROXY_DICT = (
+        {"http": os.environ["PROXY_URL"], "https": os.environ["PROXY_URL"]}
+        if "PROXY_URL" in os.environ else {}
+    )
 
     # Simple enum for patch operation types
     class PatchOperation:
@@ -96,8 +122,10 @@ class DSpaceClient:
         REPLACE = 'replace'
         MOVE = 'move'
 
-    def __init__(self, api_endpoint=API_ENDPOINT, username=USERNAME, password=PASSWORD, solr_endpoint=SOLR_ENDPOINT,
-                 solr_auth=SOLR_AUTH, fake_user_agent=False, proxies=PROXY_DICT, timeout=None):
+    def __init__(self, api_endpoint: str = API_ENDPOINT, username: str = USERNAME,
+                 password: str = PASSWORD, solr_endpoint: str = SOLR_ENDPOINT,
+                 solr_auth=SOLR_AUTH, fake_user_agent: bool = False,
+                 proxies: Optional[dict] = None, timeout: Optional[int] = None) -> None:
         """
         Accept optional API endpoint, username, password arguments using the OS environment variables as defaults
         :param api_endpoint:    base path to DSpace REST API, eg. http://localhost:8080/server/api
@@ -110,7 +138,7 @@ class DSpaceClient:
         self.USERNAME = username
         self.PASSWORD = password
         self.SOLR_ENDPOINT = solr_endpoint
-        self.proxies = proxies
+        self.proxies = proxies if proxies is not None else self.PROXY_DICT
         self.solr = None
         self._last_err = None
         self.timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT
@@ -136,7 +164,7 @@ class DSpaceClient:
     def last_err(self):
         return self._last_err
 
-    def authenticate(self, retry=False):
+    def authenticate(self, retry: bool = False) -> bool:
         """
         Authenticate with the DSpace REST API. As with other operations, perform XSRF refreshes when necessary.
         After POST, check /authn/status and log success if the authenticated json property is true
@@ -157,9 +185,8 @@ class DSpaceClient:
             if retry:
                 _logger.error(f'Too many retries updating token: {r.status_code}: {r.text}')
                 return False
-            else:
-                _logger.debug("Retrying request with updated CSRF token")
-                return self.authenticate(retry=True)
+            _logger.debug("Retrying request with updated CSRF token")
+            return self.authenticate(retry=True)
 
         if r.status_code == 401:
             # 401 Unauthorized
@@ -183,7 +210,7 @@ class DSpaceClient:
         # Default, return false
         return False
 
-    def verify_response(self, r, id_str: str, as_json: bool = False):
+    def verify_response(self, r, id_str: str, as_json: bool = False) -> bool:
         """
             Verify response from API. If response is not 200, log error and return False.
         """
@@ -202,7 +229,7 @@ class DSpaceClient:
         return True
 
 
-    def refresh_token(self):
+    def refresh_token(self) -> None:
         """
         If the DSPACE-XSRF-TOKEN appears, we need to update our local stored token and re-send our API request
         @return: None
@@ -210,7 +237,8 @@ class DSpaceClient:
         r = self.api_post(self.LOGIN_URL, None, None)
         self.update_token(r)
 
-    def api_get(self, url, params=None, data=None, headers=None):
+    def api_get(self, url: str, params=None, data=None,
+                headers=None) -> requests.Response:
         """
         Perform a GET request. Refresh XSRF token if necessary.
         @param url:     DSpace REST API URL
@@ -227,7 +255,8 @@ class DSpaceClient:
         self.update_token(r)
         return r
 
-    def api_post(self, url, params, json, retry=False, timeout=None):
+    def api_post(self, url: str, params, json: Any, retry: bool = False,
+                 timeout=None) -> requests.Response:
         """
         Perform a POST request. Refresh XSRF token if necessary.
         POSTs are typically used to create objects.
@@ -272,7 +301,8 @@ class DSpaceClient:
                     return self.api_post(url, params=params, json=json, retry=True, timeout=timeout)
         return r
 
-    def api_post_uri(self, url, params, uri_list, retry=False):
+    def api_post_uri(self, url: str, params, uri_list,
+                     retry: bool = False) -> requests.Response:
         """
         Perform a POST request. Refresh XSRF token if necessary.
         POSTs are typically used to create objects.
@@ -302,7 +332,8 @@ class DSpaceClient:
 
         return r
 
-    def api_put(self, url, params, json, retry=False):
+    def api_put(self, url: str, params, json: Any,
+                retry: bool = False) -> requests.Response:
         """
         Perform a PUT request. Refresh XSRF token if necessary.
         PUTs are typically used to update objects.
@@ -334,7 +365,8 @@ class DSpaceClient:
 
         return r
 
-    def api_put_uri(self, url, params, uri_list, retry=False):
+    def api_put_uri(self, url: str, params, uri_list,
+                    retry: bool = False) -> requests.Response:
         """
         Perform a PUT request. Refresh XSRF token if necessary.
         PUTs are typically used to update objects.
@@ -366,7 +398,7 @@ class DSpaceClient:
 
         return r
 
-    def api_delete(self, url, params, retry=False):
+    def api_delete(self, url: str, params, retry: bool = False) -> requests.Response:
         """
         Perform a DELETE request. Refresh XSRF token if necessary.
         DELETES are typically used to update objects.
@@ -397,7 +429,8 @@ class DSpaceClient:
 
         return r
 
-    def api_patch(self, url, operation, path, value, params=None, retry=False):
+    def api_patch(self, url: str, operation, path, value, params=None,
+                  retry: bool = False) -> Optional[requests.Response]:
         """
         @param url: DSpace REST API URL
         @param operation: 'add', 'remove', 'replace', or 'move' (see PatchOperation enumeration)
@@ -415,8 +448,8 @@ class DSpaceClient:
         if path is None:
             _logger.error('Need valid path eg. /withdrawn or /metadata/dc.title/0/language')
             return None
-        if (operation == self.PatchOperation.ADD or operation == self.PatchOperation.REPLACE
-                or operation == self.PatchOperation.MOVE) and value is None:
+        if operation in (self.PatchOperation.ADD, self.PatchOperation.REPLACE,
+                         self.PatchOperation.MOVE) and value is None:
             # missing value required for add/replace/move operations
             _logger.error('Missing required "value" argument for add/replace/move operations')
             return None
@@ -459,7 +492,8 @@ class DSpaceClient:
         return r
 
     # PAGINATION
-    def search_objects(self, query=None, scope=None, filters=None, page=0, size=20, sort=None, dso_type=None, details=None):
+    def search_objects(self, query=None, scope=None, filters=None, page: int = 0,
+                       size: int = 20, sort=None, dso_type=None, details=None) -> list:
         """
         Do a basic search with optional query, filters and dsoType params.
         @param query:   query string
@@ -506,7 +540,7 @@ class DSpaceClient:
 
         return dsos
 
-    def fetch_resource(self, url, params=None):
+    def fetch_resource(self, url: str, params=None) -> Any:
         """
         Simple function for higher-level 'get' functions to use whenever they want
         to retrieve JSON resources from the API
@@ -524,7 +558,7 @@ class DSpaceClient:
         # ValueError / JSON handling moved to static method
         return parse_json(r)
 
-    def get_resourcepolicy(self, uuid, action='READ'):
+    def get_resourcepolicy(self, uuid: str, action: str = 'READ') -> Optional[list]:
         """
         Fetch resource policies for a given resource UUID and action.
         @param uuid:    resource UUID to search for
@@ -533,7 +567,7 @@ class DSpaceClient:
         """
         try:
             # Validate UUID
-            id = UUID(uuid).version
+            UUID(uuid)
             url = f'{self.API_ENDPOINT}/authz/resourcepolicies/search/resource'
             params = {'uuid': uuid}
             if action is not None:
@@ -551,9 +585,9 @@ class DSpaceClient:
             return None
 
     def create_resourcepolicy(
-            self, resource_uuid, group_uuid, action='READ',
+            self, resource_uuid: str, group_uuid: str, action: str = 'READ',
             start_date=None, end_date=None,
-    ):
+    ) -> Optional[ResourcePolicy]:
         """
         Create a new resource policy for a given DSpace resource.
         Uses POST /api/authz/resourcepolicies?resource=<uuid>&group=<uuid>
@@ -595,7 +629,7 @@ class DSpaceClient:
             f'Failed to create resource policy: {r.status_code}: {r.text}')
         return None
 
-    def get_dso(self, url, uuid):
+    def get_dso(self, url: str, uuid: str) -> Optional[requests.Response]:
         """
         Base 'get DSpace Object' function.
         Uses fetch_resource which itself calls parse_json on the raw response before returning.
@@ -605,14 +639,14 @@ class DSpaceClient:
         """
         try:
             # Try to get UUID version to test validity
-            id = UUID(uuid).version
+            UUID(uuid)
             url = f'{url}/{uuid}'
             return self.api_get(url, None, None)
         except ValueError:
             _logger.error(f'Invalid DSO UUID: {uuid}')
             return None
 
-    def create_dso(self, url, params, data):
+    def create_dso(self, url: str, params, data) -> requests.Response:
         """
         Base 'create DSpace Object' function.
         Takes JSON data and some POST parameters and returns the response.
@@ -631,7 +665,7 @@ class DSpaceClient:
             _logger.error(f'create operation failed: {r.status_code}: {r.text} ({url})')
         return r
 
-    def update_dso(self, dso, params=None):
+    def update_dso(self, dso, params=None) -> Optional[DSpaceObject]:
         """
         Update DSpaceObject. Takes a DSpaceObject and any optional parameters. Will send a PUT update to the remote
         object and return the updated object, typed correctly.
@@ -655,27 +689,24 @@ class DSpaceClient:
 
             if 'lastModified' in data:
                 data.pop('lastModified')
-            """
-            if 'id' in data:
-                data.pop('id')
-            if 'handle' in data:
-                data.pop('handle')
-            if 'uuid' in data:
-                data.pop('uuid')
-            if 'type' in data:
-                data.pop('type')
-            """
+            # if 'id' in data:
+            #     data.pop('id')
+            # if 'handle' in data:
+            #     data.pop('handle')
+            # if 'uuid' in data:
+            #     data.pop('uuid')
+            # if 'type' in data:
+            #     data.pop('type')
             r = self.api_put(url, params=params, json=data)
             if r.status_code == 200:
                 # 200 OK - success!
                 updated_dso = dso_type(parse_json(r))
                 _logger.debug(f'{updated_dso.type} {updated_dso.uuid} updated successfully!')
                 return updated_dso
-            else:
-                _logger.error(f'update operation failed: {r.status_code}: {r.text} ({url})')
-                return None
+            _logger.error(f'update operation failed: {r.status_code}: {r.text} ({url})')
+            return None
 
-        except ValueError as e:
+        except ValueError:
             _logger.error("Error parsing DSO response", exc_info=True)
             return None
 
@@ -707,15 +738,15 @@ class DSpaceClient:
                 # 204 No Content - success!
                 _logger.info(f'{url} was deleted successfully!')
                 return r
-            else:
-                _logger.error(f'update operation failed: {r.status_code}: {r.text} ({url})')
-                return None
+            _logger.error(f'update operation failed: {r.status_code}: {r.text} ({url})')
+            return None
         except ValueError as e:
             _logger.error(f'Error deleting DSO {dso.uuid}: {e}')
             return None
 
     # PAGINATION
-    def get_bundles(self, parent=None, uuid=None, page=0, size=20, sort=None):
+    def get_bundles(self, parent=None, uuid=None, page: int = 0, size: int = 20,
+                    sort=None) -> list:
         """
         Get bundles for an item
         @param parent:  python Item object, from which the UUID will be referenced in the URL.
@@ -725,7 +756,7 @@ class DSpaceClient:
         """
         # TODO: It is probably wise to allow the parent UUID to be simply passed as an alternative to having the full
         #  python object as constructed by this REST client, for more flexible usage.
-        bundles = list()
+        bundles = []
         single_result = False
         if uuid is not None:
             url = f'{self.API_ENDPOINT}/core/bundles/{uuid}'
@@ -733,7 +764,7 @@ class DSpaceClient:
         elif parent is not None:
             url = f'{self.API_ENDPOINT}/core/items/{parent.uuid}/bundles'
         else:
-            return list()
+            return []
         params = {}
         if size is not None:
             params['size'] = size
@@ -765,7 +796,7 @@ class DSpaceClient:
 
         return bundles
 
-    def create_bundle(self, parent=None, name='ORIGINAL'):
+    def create_bundle(self, parent=None, name: str = 'ORIGINAL') -> Optional[Bundle]:
         """
         Create new bundle in the specified item
         @param parent:  Parent python Item, the UUID of which will be used in the URL path
@@ -787,7 +818,8 @@ class DSpaceClient:
         return Bundle(api_resource=parse_json(r))
 
     # PAGINATION
-    def get_bitstreams(self, uuid=None, bundle=None, page=0, size=20, sort=None):
+    def get_bitstreams(self, uuid=None, bundle=None, page: int = 0, size: int = 20,
+                       sort=None) -> list:
         """
         Get a specific bitstream UUID, or all bitstreams for a specific bundle
         @param uuid:    UUID of a specific bitstream to retrieve
@@ -798,7 +830,7 @@ class DSpaceClient:
         """
         url = f'{self.API_ENDPOINT}/core/bitstreams/{uuid}'
         if uuid is None and bundle is None:
-            return list()
+            return []
         if uuid is None and isinstance(bundle, Bundle):
             if 'bitstreams' in bundle.links:
                 url = bundle.links['bitstreams']['href']
@@ -820,17 +852,18 @@ class DSpaceClient:
                 # the bundle (or item) is gone - no bitstreams, a clean empty
                 # result rather than a crash. Mirrors get_bundles.
                 _logger.info(f'No bitstreams: resource not found (404) [{url}]')
-                return list()
+                return []
             # a transient 5xx must NOT masquerade as "no bitstreams"; surface it
             # with status + url so the caller can retry, not an opaque TypeError.
             raise RuntimeError(f'Failed to fetch bitstreams: HTTP {status} [{url}]')
-        bitstreams = list()
+        bitstreams = []
         if '_embedded' in r_json and 'bitstreams' in r_json['_embedded']:
             for bitstream_resource in r_json['_embedded']['bitstreams']:
                 bitstreams.append(Bitstream(bitstream_resource))
         return bitstreams
 
-    def create_bitstream(self, bundle=None, name=None, path=None, mime=None, metadata=None, retry=False):
+    def create_bitstream(self, bundle=None, name=None, path=None, mime=None,
+                         metadata=None, retry: bool = False) -> Optional[Bitstream]:
         """
         Upload a file and create a bitstream for a specified parent bundle, from the uploaded file and
         the supplied metadata.
@@ -858,7 +891,7 @@ class DSpaceClient:
         with open(path, 'rb') as fh:
             files = {'file': (name, fh, mime)}
             properties = {'name': name, 'metadata': metadata, 'bundleName': bundle.name}
-            payload = {'properties': json.dumps(properties) + ';application/json'}
+            payload = {'properties': _json.dumps(properties) + ';application/json'}
             # copy the session headers so this request's Content-Encoding does
             # not leak onto every subsequent request (and across threads)
             h = dict(self.session.headers)
@@ -868,7 +901,7 @@ class DSpaceClient:
             r = self.session.send(prepared_req, proxies=self.proxies, timeout=self.timeout)
         if 'DSPACE-XSRF-TOKEN' in r.headers:
             t = r.headers['DSPACE-XSRF-TOKEN']
-            _logger.debug('Updating token to ' + t)
+            _logger.debug(f'Updating token to {t}')
             self.session.headers.update({'X-XSRF-Token': t})
             self.session.cookies.update({'X-XSRF-Token': t})
         if not retry and r.status_code in (401, 403):
@@ -879,14 +912,13 @@ class DSpaceClient:
                 self.authenticate()
             return self.create_bitstream(bundle, name, path, mime, metadata, True)
 
-        if r.status_code == 201 or r.status_code == 200:
+        if r.status_code in (201, 200):
             # Success
             return Bitstream(api_resource=parse_json(r))
-        else:
-            _logger.error(f'Error creating bitstream: {r.status_code}: {r.text}')
-            return None
+        _logger.error(f'Error creating bitstream: {r.status_code}: {r.text}')
+        return None
 
-    def download_bitstream(self, uuid=None):
+    def download_bitstream(self, uuid=None) -> Optional[requests.Response]:
         """
         Download bitstream and return full response object including headers, and content
         @param uuid:
@@ -897,9 +929,11 @@ class DSpaceClient:
         r = self.api_get(url, headers=h)
         if r.status_code == 200:
             return r
+        return None
 
     # PAGINATION
-    def get_communities(self, uuid=None, page=0, size=20, sort=None, top=False):
+    def get_communities(self, uuid: Optional[str] = None, page: int = 0, size: int = 20,
+                        sort=None, top: bool = False) -> Optional[list]:
         """
         Get communities - either all, for single UUID, or all top-level (ie no sub-communities)
         @param uuid:    string UUID if getting single community
@@ -917,15 +951,12 @@ class DSpaceClient:
         if sort is not None:
             params['sort'] = sort
         if uuid is not None:
-            try:
-                # This isn't used, but it'll throw a ValueError if not a valid UUID
-                id = UUID(uuid).version
-                # Set URL and parameters
-                url = f'{url}/{uuid}'
-                params = None
-            except ValueError:
+            if not _is_valid_uuid(uuid):
                 _logger.error(f'Invalid community UUID: {uuid}')
                 return None
+            # Set URL and parameters
+            url = f'{url}/{uuid}'
+            params = None
 
         if top:
             # Set new URL
@@ -935,7 +966,7 @@ class DSpaceClient:
         # Perform actual get
         r_json = self.fetch_resource(url, params)
         # Empty list
-        communities = list()
+        communities = []
         if '_embedded' in r_json:
             if 'communities' in r_json['_embedded']:
                 for community_resource in r_json['_embedded']['communities']:
@@ -946,7 +977,7 @@ class DSpaceClient:
         # Return list (populated or empty)
         return communities
 
-    def create_community(self, parent, data):
+    def create_community(self, parent, data) -> Community:
         """
         Create a community, either top-level or beneath a given parent
         @param parent:  (optional) parent UUID to pass as a parameter to create_dso
@@ -961,7 +992,8 @@ class DSpaceClient:
             params = {'parent': parent}
         return Community(api_resource=parse_json(self.create_dso(url, params, data)))
 
-    def get_collections(self, uuid=None, community=None, page=0, size=20, sort=None):
+    def get_collections(self, uuid: Optional[str] = None, community=None, page: int = 0,
+                        size: int = 20, sort=None) -> Optional[list]:
         """
         Get collections - all, or single UUID, or for a specific community
         @param uuid:        UUID string. If present, just a single collection is returned (overrides community arg)
@@ -981,14 +1013,12 @@ class DSpaceClient:
             params['sort'] = sort
         # First, handle case of UUID. It overrides the other arguments as it is a request for a single collection
         if uuid is not None:
-            try:
-                id = UUID(uuid).version
-                # Update URL and parameters
-                url = f'{url}/{uuid}'
-                params = None
-            except ValueError:
+            if not _is_valid_uuid(uuid):
                 _logger.error(f'Invalid collection UUID: {uuid}')
                 return None
+            # Update URL and parameters
+            url = f'{url}/{uuid}'
+            params = None
 
         if community is not None:
             if 'collections' in community.links and 'href' in community.links['collections']:
@@ -998,7 +1028,7 @@ class DSpaceClient:
         # Perform the actual request. By now, our URL and parameter should be properly set
         r_json = self.fetch_resource(url, params=params)
         # Empty list
-        collections = list()
+        collections = []
         if '_embedded' in r_json:
             # This is a list of collections
             if 'collections' in r_json['_embedded']:
@@ -1011,7 +1041,7 @@ class DSpaceClient:
         # Return list (populated or empty)
         return collections
 
-    def create_collection(self, parent, data):
+    def create_collection(self, parent, data) -> Collection:
         """
         Create collection beneath a given parent community.
         @param parent:  UUID of parent community to pass as a parameter to create_dso
@@ -1026,7 +1056,7 @@ class DSpaceClient:
             params = {'parent': parent}
         return Collection(api_resource=parse_json(self.create_dso(url, params, data)))
 
-    def get_item(self, uuid):
+    def get_item(self, uuid: str) -> Optional[Item]:
         """
         Get an item, given its UUID
         @param uuid:    the UUID of the item
@@ -1034,7 +1064,7 @@ class DSpaceClient:
         """
         url = f'{self.API_ENDPOINT}/core/items'
         try:
-            id = UUID(uuid).version
+            UUID(uuid)
             url = f'{url}/{uuid}'
             r = self.api_get(url, None, None)
             r_json = parse_json(response=r)
@@ -1043,7 +1073,7 @@ class DSpaceClient:
             _logger.error(f'Invalid item UUID: {uuid}')
             return None
 
-    def get_item_by_handle(self, handle):
+    def get_item_by_handle(self, handle) -> Optional[Item]:
         """
         Get item based on handle.
         """
@@ -1066,14 +1096,14 @@ class DSpaceClient:
             _logger.error(f'Invalid item handle: {handle}')
             return None
 
-    def get_items(self, page=0, size=20):
+    def get_items(self, page: int = 0, size: int = 20) -> list:
         """
         Get all archived items for a logged-in administrator. Admin only! Usually you will want to
         use search or browse methods instead of this method
         @return: A list of items, or an error
         """
         url = f'{self.API_ENDPOINT}/core/items'
-        items = list()
+        items = []
         params = {}
         if size is not None:
             params['size'] = size
@@ -1089,7 +1119,7 @@ class DSpaceClient:
             items.append(Item(r_json))
         return items
 
-    def get_owningCollection(self, item_uuid):
+    def get_owningCollection(self, item_uuid: str) -> Optional[Collection]:
         """
             Get owningCollection
         """
@@ -1103,7 +1133,7 @@ class DSpaceClient:
             _logger.error(f'Invalid owningCollection for UUID: {item_uuid}')
             return None
 
-    def create_item(self, parent, item):
+    def create_item(self, parent, item) -> Optional[Item]:
         """
         Create an item beneath the given parent collection
         @param parent:  UUID of parent collection to pass as a parameter to create_dso
@@ -1125,7 +1155,7 @@ class DSpaceClient:
             return None
         return Item(api_resource=parse_json(r))
 
-    def update_item(self, item):
+    def update_item(self, item) -> Optional[DSpaceObject]:
         """
         Update item. The Item passed to this method contains all the data, identifiers, links necessary to
         perform the update to the API. Note this is a full update, not a patch / partial update operation.
@@ -1137,7 +1167,8 @@ class DSpaceClient:
             return None
         return self.update_dso(item, params=None)
 
-    def add_metadata(self, dso, field, value, language=None, authority=None, confidence=-1, place=''):
+    def add_metadata(self, dso, field, value, language=None, authority=None,
+                     confidence: int = -1, place: str = ''):
         """
         Add metadata to a DSO using the api_patch method (PUT, with path and operation and value)
         :param dso:
@@ -1193,7 +1224,7 @@ class DSpaceClient:
         r = self.api_patch(url=url, operation=self.PatchOperation.REMOVE, path=path, value=None)
         return dso_type(api_resource=parse_json(r))
 
-    def create_user(self, user, token=None):
+    def create_user(self, user, token=None) -> User:
         """
         Create a user
         @param user:    python User object or Python dict containing all the data and links expected by the REST API
@@ -1218,9 +1249,9 @@ class DSpaceClient:
         return self.delete_dso(user)
 
     # PAGINATION
-    def get_users(self, page=0, size=20, sort=None):
+    def get_users(self, page: int = 0, size: int = 20, sort=None) -> list:
         url = f'{self.API_ENDPOINT}/eperson/epersons'
-        users = list()
+        users = []
         params = {}
         if size is not None:
             params['size'] = size
@@ -1236,7 +1267,7 @@ class DSpaceClient:
                     users.append(User(user_resource))
         return users
 
-    def create_group(self, group):
+    def create_group(self, group) -> Group:
         """
         Create a group
         @param group:    python Group object or Python dict containing all the data and links expected by the REST API
@@ -1250,7 +1281,7 @@ class DSpaceClient:
             # that you see for other DSO types - still figuring out the best way
         return Group(api_resource=parse_json(self.create_dso(url, params=None, data=data)))
 
-    def create_submit_group(self, collection):
+    def create_submit_group(self, collection) -> Optional[Group]:
         """
         Creates a submitter group for the given collection.
         """
@@ -1260,7 +1291,7 @@ class DSpaceClient:
             return Group(parse_json(r))
         return None
 
-    def add_member(self, group, eperson):
+    def add_member(self, group, eperson) -> bool:
         """
         Adds a user (EPerson) as a member of the specified group.
 
@@ -1289,13 +1320,13 @@ class DSpaceClient:
         return False
 
 
-    def start_workflow(self, workspace_item):
+    def start_workflow(self, workspace_item) -> None:
         url = f'{self.API_ENDPOINT}/workflow/workflowitems'
         res = parse_json(self.api_post_uri(url, params=None, uri_list=workspace_item))
         _logger.debug(res)
         # TODO: WIP
 
-    def update_token(self, r):
+    def update_token(self, r) -> None:
         """
         Refresh / update the XSRF (aka. CSRF) token if DSPACE-XSRF-TOKEN found in response headers
         This is used by all the base methods like api_put,
@@ -1313,7 +1344,7 @@ class DSpaceClient:
             self.session.headers.update({'X-XSRF-Token': t})
             self.session.cookies.update({'X-XSRF-Token': t})
 
-    def get_short_lived_token(self):
+    def get_short_lived_token(self) -> Optional[str]:
         """
         Get a short-lived (2 min) token in order to request restricted bitstream downloads
         @return: short lived Authorization token
@@ -1331,7 +1362,8 @@ class DSpaceClient:
         _logger.error('Could not retrieve short-lived token')
         return None
 
-    def solr_query(self, query, filters=None, fields=None, start=0, rows=999999999):
+    def solr_query(self, query, filters=None, fields=None, start: int = 0,
+                   rows: int = 999999999):
         if fields is None:
             fields = []
         if filters is None:
@@ -1340,14 +1372,15 @@ class DSpaceClient:
             'fl': ','.join(fields)
         })
 
-    def get_items_from_collection(self, collection_id, page=0, size=1000):
+    def get_items_from_collection(self, collection_id, page: int = 0,
+                                  size: int = 1000) -> list:
         """
         Get all items
         @return:        list of Item objects
         """
         url = f'{self.API_ENDPOINT}/discover/search/objects?sort=dc.date.accessioned,DESC&page={page}&size={size}&scope={collection_id}&dsoType=ITEM&embed=thumbnail'
 
-        items = list()
+        items = []
         r = self.api_get(url)
         r_json = parse_json(r)
         if '_embedded' in r_json:
@@ -1358,7 +1391,7 @@ class DSpaceClient:
 
         return items
 
-    def get_bundle_by_name(self, name, item_uuid):
+    def get_bundle_by_name(self, name, item_uuid: str) -> Optional[Bundle]:
         """
         Get a bundle by name for a specific item
         @param name:    Name of the bundle
@@ -1374,7 +1407,7 @@ class DSpaceClient:
                         return Bundle(bundle)
         return None
 
-    def get_resource_policy(self, bundle_uuid):
+    def get_resource_policy(self, bundle_uuid: str) -> Optional[dict]:
         """
         Get a resource policy for a specific bundle
         """
@@ -1384,8 +1417,10 @@ class DSpaceClient:
         if '_embedded' in r_json:
             if 'resourcepolicies' in r_json['_embedded']:
                 return r_json['_embedded']['resourcepolicies'][0]
+        return None
 
-    def create_resource_policy(self, resource_uuid, data, group_uuid=None, eperson_uuid=None):
+    def create_resource_policy(self, resource_uuid: str, data, group_uuid=None,
+                               eperson_uuid=None) -> bool:
         """
         Creates a resource policy by sending a POST request to the API endpoint.
         """
@@ -1402,7 +1437,7 @@ class DSpaceClient:
         return False
 
 
-    def update_resource_policy_group(self, policy_id, group_uuid):
+    def update_resource_policy_group(self, policy_id, group_uuid: str) -> requests.Response:
         """
         Update a resource policy with a new group
         """
@@ -1411,7 +1446,7 @@ class DSpaceClient:
         r = self.api_put_uri(url, None, body, False)
         return r
 
-    def get_clarinlruallowances(self):
+    def get_clarinlruallowances(self) -> Optional[list]:
         """
         Fetch all clarinlruallowances.
         """
@@ -1426,7 +1461,8 @@ class DSpaceClient:
             _logger.error(f"Error fetching CLARIN LRU allowances [{url}]: {e}")
         return None
 
-    def get_clarinlruallowances_by_bitstream_and_user(self, bitstream_uuid, user_uuid):
+    def get_clarinlruallowances_by_bitstream_and_user(
+            self, bitstream_uuid: str, user_uuid: str) -> Optional[list]:
         """
         Fetch user allowances for a specific bitstream and user.
         """
@@ -1443,7 +1479,7 @@ class DSpaceClient:
         return None
 
 
-    def create_clarinlruallowances(self, bitstream_uuid, metadata_payload=None):
+    def create_clarinlruallowances(self, bitstream_uuid: str, metadata_payload=None) -> bool:
         """
         Create clarinlruallowances for a bitstream for the logged-in user by
         managing the bitstream's user metadata.
@@ -1467,7 +1503,7 @@ class DSpaceClient:
         return False
 
 
-    def get_user_by_email(self, email):
+    def get_user_by_email(self, email: str) -> Optional[User]:
         """
         Retrieve user details using their email address.
         """
