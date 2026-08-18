@@ -10,8 +10,8 @@ Help with extending the scope and improving the code is always welcome!
 PyPI homepage: https://pypi.org/project/dspace-rest-client/
 
 ## Requirements
-* Python 3.x (developed using Python 3.8.5)
-* Python Requests module (see `requirements.txt`)
+* Python 3.10+
+* Python Requests module (installed automatically; declared in `pyproject.toml`)
 * Working DSpace 7 repository with an accessible REST API
 
 ## Installation
@@ -20,10 +20,11 @@ To install with pip:
 
 (or `pip3` or `python -m pip` as appropriate to your environment)
 
-To install manually, clone this repository and install the requirements:
+To install manually, clone this repository and install the package:
 ```commandline
 git clone https://github.com/the-library-code/dspace-rest-python.git
-pip install -r requirements.txt
+cd dspace-rest-python
+pip install .
 ```
 
 

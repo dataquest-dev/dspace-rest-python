@@ -145,7 +145,9 @@ class DSpaceClient:
         self.USERNAME = username
         self.PASSWORD = password
         self.SOLR_ENDPOINT = solr_endpoint
-        self.proxies = proxies if proxies is not None else self.PROXY_DICT
+        # Copy the class-level default so per-instance mutation of `proxies`
+        # never leaks into other default-constructed clients.
+        self.proxies = proxies if proxies is not None else dict(self.PROXY_DICT)
         self.solr = None
         self._last_err = None
         self.timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT
@@ -624,7 +626,8 @@ class DSpaceClient:
                 f'[{url}]')
         return resources
 
-    def get_resourcepolicy(self, uuid: str, action: str = 'READ') -> Optional[list]:
+    def get_resourcepolicy(self, uuid: str,
+                           action: Optional[str] = 'READ') -> Optional[list]:
         """
         Fetch resource policies for a given resource UUID and action.
         @param uuid:    resource UUID to search for
