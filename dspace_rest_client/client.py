@@ -113,6 +113,7 @@ class DSpaceClient:
         self.auth_request_headers = {'User-Agent': self.USER_AGENT}
         self.request_headers = {'Content-type': 'application/json', 'User-Agent': self.USER_AGENT}
         self.list_request_headers = {'Content-type': 'text/uri-list', 'User-Agent': self.USER_AGENT}
+        self.text_plain_request_headers = {'Content-type': 'text/plain', 'User-Agent': self.USER_AGENT}
 
     def authenticate(self, retry=False):
         """
@@ -167,19 +168,50 @@ class DSpaceClient:
         r = self.api_post(self.LOGIN_URL, None, None)
         self.update_token(r)
 
-    def api_get(self, url, params=None, data=None, headers=None):
+    def api_get(self, url, params=None, data=None, headers=None, retry=False):
         """
         Perform a GET request. Refresh XSRF token if necessary.
         @param url:     DSpace REST API URL
         @param params:  any parameters to include (eg ?page=0)
         @param data:    any data to supply (typically not relevant for GET)
         @param headers: any override headers (eg. with short-lived token for download)
+        @param retry:   Has this method already been retried? Used if we need to refresh XSRF.
         @return:        Response from API
         """
         if headers is None:
             headers = self.request_headers
         r = self.session.get(url, params=params, data=data, headers=headers)
         self.update_token(r)
+
+        if r.status_code == 403:
+            # 403 Forbidden
+            # If we had a CSRF failure, retry the request with the updated token
+            # After speaking in #dev it seems that these do need occasional refreshes but I suspect
+            # it's happening too often for me, so check for accidentally triggering it
+            r_json = parse_json(r)
+            if 'message' in r_json and 'CSRF token' in r_json['message']:
+                if retry:
+                    _logger.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
+                else:
+                    _logger.debug("Retrying request with updated CSRF token")
+                    return self.api_get(url, params=params, data=data, headers=headers, retry=True)
+
+        # we need to log in again, if there is login error. This is a bad
+        # solution copied from the past
+        elif r.status_code == 401:
+            r_json = parse_json(r)
+            if r_json and 'message' in r_json and 'Authentication is required' in r_json['message']:
+                if retry:
+                    _logger.error(
+                        'API Get: Already retried... something must be wrong')
+                else:
+                    _logger.debug("API Get: Retrying request with updated CSRF token")
+                    # try to authenticate
+                    self.authenticate()
+                    # Try to authenticate and repeat the request 3 times -
+                    # if it won't happen log error
+                    return self.api_get(url, params=params, data=data, headers=headers, retry=True)
+
         return r
 
     def api_post(self, url, params, json, retry=False):
@@ -212,12 +244,12 @@ class DSpaceClient:
         # solution copied from the past
         elif r.status_code == 401:
             r_json = parse_json(r)
-            if 'message' in r_json and 'Authentication is required' in r_json['message']:
+            if r_json and 'message' in r_json and 'Authentication is required' in r_json['message']:
                 if retry:
-                    logging.error(
+                    _logger.error(
                         'API Post: Already retried... something must be wrong')
                 else:
-                    logging.debug("API Post: Retrying request with updated CSRF token")
+                    _logger.debug("API Post: Retrying request with updated CSRF token")
                     # try to authenticate
                     self.authenticate()
                     # Try to authenticate and repeat the request 3 times -
@@ -244,11 +276,27 @@ class DSpaceClient:
             # After speaking in #dev it seems that these do need occasional refreshes but I suspect
             # it's happening too often for me, so check for accidentally triggering it
             r_json = r.json()
-            if 'message' in r_json and 'CSRF token' in r_json['message']:
+            if r_json and 'message' in r_json and 'CSRF token' in r_json['message']:
                 if retry:
                     _logger.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
                 else:
                     _logger.debug("Retrying request with updated CSRF token")
+                    return self.api_post_uri(url, params=params, uri_list=uri_list, retry=True)
+
+        # we need to log in again, if there is login error. This is a bad
+        # solution copied from the past
+        elif r.status_code == 401:
+            r_json = parse_json(r)
+            if 'message' in r_json and 'Authentication is required' in r_json['message']:
+                if retry:
+                    _logger.error(
+                        'API Post: Already retried... something must be wrong')
+                else:
+                    _logger.debug("API Post: Retrying request with updated CSRF token")
+                    # try to authenticate
+                    self.authenticate()
+                    # Try to authenticate and repeat the request 3 times -
+                    # if it won't happen log error
                     return self.api_post_uri(url, params=params, uri_list=uri_list, retry=True)
 
         return r
@@ -274,7 +322,7 @@ class DSpaceClient:
             _logger.debug(r.text)
             # Parse response
             r_json = parse_json(r)
-            if 'message' in r_json and 'CSRF token' in r_json['message']:
+            if r_json and 'message' in r_json and 'CSRF token' in r_json['message']:
                 if retry:
                     _logger.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
                 else:
@@ -300,14 +348,14 @@ class DSpaceClient:
             # If we had a CSRF failure, retry the request with the updated token
             # After speaking in #dev it seems that these do need occasional refreshes but I suspect
             # it's happening too often for me, so check for accidentally triggering it
-            logging.debug(r.text)
+            _logger.debug(r.text)
             # Parse response
             r_json = parse_json(r)
-            if 'message' in r_json and 'CSRF token' in r_json['message']:
+            if r_json and 'message' in r_json and 'CSRF token' in r_json['message']:
                 if retry:
-                    logging.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
+                    _logger.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
                 else:
-                    logging.debug("Retrying request with updated CSRF token")
+                    _logger.debug("Retrying request with updated CSRF token")
                     return self.api_put_uri(url, params=params, uri_list=uri_list, retry=True)
 
         return r
@@ -332,7 +380,7 @@ class DSpaceClient:
             _logger.debug(r.text)
             # Parse response
             r_json = parse_json(r)
-            if 'message' in r_json and 'CSRF token' in r_json['message']:
+            if r_json and 'message' in r_json and 'CSRF token' in r_json['message']:
                 if retry:
                     _logger.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
                 else:
@@ -352,15 +400,15 @@ class DSpaceClient:
         @see https://github.com/DSpace/RestContract/blob/main/metadata-patch.md
         """
         if url is None:
-            logging.error('Missing required URL argument')
+            _logger.error('Missing required URL argument')
             return None
         if path is None:
-            logging.error('Need valid path eg. /withdrawn or /metadata/dc.title/0/language')
+            _logger.error('Need valid path eg. /withdrawn or /metadata/dc.title/0/language')
             return None
         if (operation == self.PatchOperation.ADD or operation == self.PatchOperation.REPLACE
                 or operation == self.PatchOperation.MOVE) and value is None:
             # missing value required for add/replace/move operations
-            logging.error('Missing required "value" argument for add/replace/move operations')
+            _logger.error('Missing required "value" argument for add/replace/move operations')
             return None
 
         # compile patch data
@@ -386,7 +434,7 @@ class DSpaceClient:
             # it's happening too often for me, so check for accidentally triggering it
             _logger.debug(r.text)
             r_json = parse_json(r)
-            if 'message' in r_json and 'CSRF token' in r_json['message']:
+            if r_json and 'message' in r_json and 'CSRF token' in r_json['message']:
                 if retry:
                     _logger.warning(f'Too many retries updating token: {r.status_code}: {r.text}')
                 else:
@@ -509,7 +557,7 @@ class DSpaceClient:
             return None
         dso_type = type(dso)
         if not isinstance(dso, SimpleDSpaceObject):
-            logging.error('Only SimpleDSpaceObject types (eg Item, Collection, Community) '
+            _logger.error('Only SimpleDSpaceObject types (eg Item, Collection, Community) '
                   'are supported by generic update_dso PUT.')
             return dso
         try:
@@ -556,11 +604,11 @@ class DSpaceClient:
         """
         if dso is None:
             if url is None:
-                logging.error('Need a DSO or a URL to delete')
+                _logger.error('Need a DSO or a URL to delete')
                 return None
         else:
             if not isinstance(dso, SimpleDSpaceObject):
-                logging.error('Only SimpleDSpaceObject types (eg Item, Collection, Community, EPerson) '
+                _logger.error('Only SimpleDSpaceObject types (eg Item, Collection, Community, EPerson) '
                       'are supported by generic update_dso PUT.')
                 return dso
             # Get self URI from HAL links
@@ -1011,7 +1059,7 @@ class DSpaceClient:
         """
         if dso is None or field is None or place is None or not isinstance(dso, DSpaceObject):
             # TODO: separate these tests, and add better error handling
-            logging.error('Invalid or missing DSpace object, field or value string')
+            _logger.error('Invalid or missing DSpace object, field or value string')
             return self
         dso_type = type(dso)
 
@@ -1045,7 +1093,7 @@ class DSpaceClient:
 
     def delete_user(self, user):
         if not isinstance(user, User):
-            logging.error('Must be a valid user')
+            _logger.error('Must be a valid user')
             return None
         return self.delete_dso(user)
 
