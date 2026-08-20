@@ -407,6 +407,7 @@ class Group(DSpaceObject):
         @param api_resource: API result object to use as initial data
         """
         super().__init__(api_resource)
+        api_resource = api_resource or {}
         self.type = 'group'
         if 'name' in api_resource:
             self.name = api_resource['name']
@@ -442,6 +443,7 @@ class User(SimpleDSpaceObject):
         @param api_resource: API result object to use as initial data
         """
         super().__init__(api_resource)
+        api_resource = api_resource or {}
         self.type = 'user'
         if 'name' in api_resource:
             self.name = api_resource['name']

@@ -169,5 +169,29 @@ class TestGroupSearchForUuidResolution(unittest.TestCase):
             self.assertEqual(groups[0]["uuid"], "anon-uuid")
 
 
+class TestOwningCollectionReauthContract(unittest.TestCase):
+    """Mirrors src/repo/_audit.py:105-111 - get_owningCollection, then the
+    `owning_col is None and last_err.status_code == 401` reauth decision. If the
+    method ever returns a truthy empty Collection on failure, that branch dies."""
+
+    def test_success_returns_collection(self):
+        c = make_client()
+        url = f"{API}/core/items/{ITEM_UUID}/owningCollection"
+        with requests_mock.Mocker() as m:
+            m.get(url, json={"uuid": "col-1", "name": "Coll", "type": "collection"})
+            col = c.get_owningCollection(ITEM_UUID)
+            self.assertEqual(col.uuid, "col-1")
+
+    def test_401_yields_none_and_last_err_drives_reauth(self):
+        c = make_client()
+        url = f"{API}/core/items/{ITEM_UUID}/owningCollection"
+        with requests_mock.Mocker() as m:
+            m.get(url, status_code=401, json={"message": "Unauthorized"})
+            col = c.get_owningCollection(ITEM_UUID)
+            # the exact predicate _audit.py evaluates
+            self.assertTrue(col is None and c.last_err is not None
+                            and c.last_err.status_code == 401)
+
+
 if __name__ == "__main__":
     unittest.main()

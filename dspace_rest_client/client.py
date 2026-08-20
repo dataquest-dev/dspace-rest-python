@@ -1096,7 +1096,12 @@ class DSpaceClient:
         url = f'{self.API_ENDPOINT}/core/items/{item_uuid}/owningCollection'
         try:
             r = self.api_get(url, None, None)
-            self.verify_response(r, f"item:{item_uuid}",  True)
+            # On a non-200, verify_response records self._last_err and returns
+            # False - return None here (not an empty, truthy Collection) so the
+            # caller's `owning_col is None and last_err.status_code == 401`
+            # reauth path (src/repo/_audit.py) actually fires.
+            if not self.verify_response(r, f"item:{item_uuid}", True):
+                return None
             r_json = parse_json(response=r)
             return Collection(r_json)
         except ValueError:
@@ -1257,7 +1262,12 @@ class DSpaceClient:
         url = f'{self.API_ENDPOINT}/core/collections/{collection.uuid}/submittersGroup'
         r = self.api_post(url, json={}, params=None)
         if r.status_code == 201:
-            return Group(parse_json(r))
+            # a 201 with an empty/invalid body would make Group(None) here; return
+            # None instead so a caller's `if not group` guard fires cleanly rather
+            # than passing a uuid-less Group into add_member()
+            j = parse_json(r)
+            if j:
+                return Group(j)
         return None
 
     def add_member(self, group, eperson):
@@ -1280,7 +1290,9 @@ class DSpaceClient:
             return False
 
         url = f'{self.API_ENDPOINT}/eperson/groups/{group.uuid}/epersons'
-        eperson_uri = f'{self.API_ENDPOINT}/epersons/{eperson.uuid}'
+        # canonical eperson href is /eperson/epersons/{uuid}; a bare /epersons/
+        # path does not resolve and DSpace rejects the uri-list with a 422
+        eperson_uri = f'{self.API_ENDPOINT}/eperson/epersons/{eperson.uuid}'
         r = self.api_post_uri(url, params=None, uri_list=eperson_uri)
         if r.status_code == 204:
             return True
@@ -1350,7 +1362,9 @@ class DSpaceClient:
         items = list()
         r = self.api_get(url)
         r_json = parse_json(r)
-        if '_embedded' in r_json:
+        # a failed request parses to None; return the empty list rather than
+        # crashing on `'_embedded' in None`
+        if r_json and '_embedded' in r_json:
             if 'searchResult' in r_json['_embedded']:
                 if '_embedded' in r_json['_embedded']['searchResult']:
                     for item_resource in r_json['_embedded']['searchResult']['_embedded']['objects']:
@@ -1367,7 +1381,9 @@ class DSpaceClient:
         """
         url = f'{self.API_ENDPOINT}/core/items/{item_uuid}/bundles'
         r_json = self.fetch_resource(url, params=None)
-        if '_embedded' in r_json:
+        # fetch_resource returns None on any non-200 (records self._last_err);
+        # guard so a failed lookup is a clean None, not a NoneType subscript crash
+        if r_json and '_embedded' in r_json:
             if 'bundles' in r_json['_embedded']:
                 for bundle in r_json['_embedded']['bundles']:
                     if bundle['name'] == name:
@@ -1380,10 +1396,20 @@ class DSpaceClient:
         """
         url = f'{self.API_ENDPOINT}/authz/resourcepolicies/search/resource?uuid={bundle_uuid}&embed=eperson&embed=group'
         r = self.api_get(url)
+        # record the failing response so a caller can tell an HTTP error apart
+        # from a genuine "no policy" (empty list) result - both return None
+        if r.status_code != 200:
+            self._last_err = r
+            _logger.error(f'Error fetching resource policy [{bundle_uuid}]: {r.status_code}')
+            return None
         r_json = parse_json(r)
-        if '_embedded' in r_json:
-            if 'resourcepolicies' in r_json['_embedded']:
-                return r_json['_embedded']['resourcepolicies'][0]
+        # guard against an unparseable body and against an empty policy list -
+        # both are a clean None, not a TypeError/IndexError
+        if r_json and '_embedded' in r_json and 'resourcepolicies' in r_json['_embedded']:
+            policies = r_json['_embedded']['resourcepolicies']
+            if policies:
+                return policies[0]
+        return None
 
     def create_resource_policy(self, resource_uuid, data, group_uuid=None, eperson_uuid=None):
         """
@@ -1475,7 +1501,19 @@ class DSpaceClient:
         params = {'email': email}
         try:
             response = self.api_get(url, params=params)
+            # a miss returns 404 (with a JSON error body): building a User from
+            # that yields a truthy, uuid-less object that passes `if user:` and
+            # fails much later. Treat any non-200 as "no such user" -> None, but
+            # record last_err so callers keep the HTTP-error diagnostics, and
+            # don't log a plain 404 miss at error level (nor the raw email).
+            if response.status_code != 200:
+                self._last_err = response
+                if response.status_code != 404:
+                    _logger.error(f"Error retrieving user by email: HTTP {response.status_code}")
+                return None
             user_data = parse_json(response)
+            if not user_data:
+                return None
             return User(user_data)
         except Exception as e:
             _logger.error(f"Error retrieving user by email {email}: {e}")

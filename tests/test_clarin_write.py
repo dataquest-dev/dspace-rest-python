@@ -145,6 +145,16 @@ class TestCreateSubmitGroup(unittest.TestCase):
             m.post(url, status_code=500, text="boom")
             self.assertIsNone(c.create_submit_group(self._collection()))
 
+    @pytest.mark.dtq_only
+    def test_empty_body_returns_none(self):
+        """D5: a 201 with an empty body must be None, not a Group(None) crash /
+        a uuid-less Group that would poison a following add_member call."""
+        c = make_client()
+        url = f"{API}/core/collections/{COLLECTION_UUID}/submittersGroup"
+        with requests_mock.Mocker() as m:
+            m.post(url, status_code=201, text="")
+            self.assertIsNone(c.create_submit_group(self._collection()))
+
 
 class TestAddMember(unittest.TestCase):
     """Mirrors dspace-rest-test - add_member(group, eperson)."""
@@ -154,6 +164,21 @@ class TestAddMember(unittest.TestCase):
 
     def _user(self):
         return User({"uuid": EPERSON_UUID, "email": "a@b.c"})
+
+    @pytest.mark.dtq_only
+    def test_posts_eperson_uri_and_returns_true_on_204(self):
+        """The eperson uri-list body must be the canonical /eperson/epersons/
+        href. dtq_only: the fix (dropping the bare /epersons/ path) lands on
+        dtq; main still emits the malformed URI, so this is deselected on the
+        main leg of the differential-contract job."""
+        c = make_client()
+        url = f"{API}/eperson/groups/{GROUP_UUID}/epersons"
+        with requests_mock.Mocker() as m:
+            m.post(url, status_code=204)
+            self.assertTrue(c.add_member(self._group(), self._user()))
+            # canonical eperson href - /eperson/epersons/, not a bare /epersons/
+            self.assertEqual(m.last_request.text,
+                             f"{API}/eperson/epersons/{EPERSON_UUID}")
 
     def test_non_204_returns_false(self):
         c = make_client()
