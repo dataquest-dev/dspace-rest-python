@@ -52,6 +52,26 @@ class TestGetResourcePolicyDict(unittest.TestCase):
             self.assertEqual(qs["uuid"], [BUNDLE_UUID])
             self.assertEqual(sorted(qs["embed"]), ["eperson", "group"])
 
+    @pytest.mark.dtq_only
+    def test_empty_list_returns_none(self):
+        """D2: an empty policy list must be a clean None, not an IndexError."""
+        c = make_client()
+        with requests_mock.Mocker() as m:
+            m.get(self.URL, json=embedded("resourcepolicies", []))
+            self.assertIsNone(c.get_resource_policy(BUNDLE_UUID))
+
+    @pytest.mark.dtq_only
+    def test_non_200_returns_none_and_records_last_err(self):
+        """D3: a failed request must be None, not a NoneType subscript crash -
+        and last_err is recorded so a caller can tell an HTTP error apart from a
+        genuine empty result (both return None)."""
+        c = make_client()
+        with requests_mock.Mocker() as m:
+            m.get(self.URL, status_code=500, text="upstream boom")
+            self.assertIsNone(c.get_resource_policy(BUNDLE_UUID))
+            self.assertIsNotNone(c.last_err)
+            self.assertEqual(c.last_err.status_code, 500)
+
 
 class TestGetBundleByName(unittest.TestCase):
     """Mirrors dspace-import-clarin - get_bundle_by_name('ORIGINAL', item)."""
@@ -72,6 +92,14 @@ class TestGetBundleByName(unittest.TestCase):
         c = make_client()
         with requests_mock.Mocker() as m:
             m.get(self.URL, json=embedded("bundles", [bundle_json("b1", "LICENSE")]))
+            self.assertIsNone(c.get_bundle_by_name("ORIGINAL", ITEM_UUID))
+
+    @pytest.mark.dtq_only
+    def test_non_200_returns_none(self):
+        """D1: a failed lookup must be None, not a NoneType subscript crash."""
+        c = make_client()
+        with requests_mock.Mocker() as m:
+            m.get(self.URL, status_code=500, text="boom")
             self.assertIsNone(c.get_bundle_by_name("ORIGINAL", ITEM_UUID))
 
 
@@ -101,6 +129,14 @@ class TestGetItemsFromCollection(unittest.TestCase):
             self.assertEqual(qs["dsoType"], ["ITEM"])
             self.assertEqual(qs["sort"], ["dc.date.accessioned,DESC"])
             self.assertEqual(qs["embed"], ["thumbnail"])
+
+    @pytest.mark.dtq_only
+    def test_non_200_returns_empty(self):
+        """D6: a failed request must yield [], not a NoneType subscript crash."""
+        c = make_client()
+        with requests_mock.Mocker() as m:
+            m.get(self.URL, status_code=500, text="boom")
+            self.assertEqual(c.get_items_from_collection(COLLECTION_UUID), [])
 
 
 class TestGetItemByHandle(unittest.TestCase):
@@ -150,6 +186,20 @@ class TestGetUserByEmail(unittest.TestCase):
             self.assertEqual((u.uuid, u.email), (EPERSON_UUID, "a@b.c"))
             self.assertEqual(sent_params(m.last_request)["email"], ["a@b.c"])
 
+    @pytest.mark.dtq_only
+    def test_404_returns_none(self):
+        """D4: a miss (404) must be falsy, not a truthy uuid-less User that
+        slips past the consumer's `if user:` guard."""
+        c = make_client()
+        with requests_mock.Mocker() as m:
+            m.get(self.URL, status_code=404, json={"timestamp": "now"})
+            u = c.get_user_by_email("nobody@nowhere")
+            self.assertIsNone(u)
+            self.assertFalse(bool(u))
+            # the failing response is retained for callers, even for a 404 miss
+            self.assertIsNotNone(c.last_err)
+            self.assertEqual(c.last_err.status_code, 404)
+
 
 class TestGetClarinAllowances(unittest.TestCase):
     """Mirrors dspace-rest-test - get_clarinlruallowances[_by_bitstream_and_user]."""
@@ -196,6 +246,17 @@ class TestGetOwningCollection(unittest.TestCase):
             col = c.get_owningCollection(ITEM_UUID)
             self.assertIsInstance(col, Collection)
             self.assertEqual(col.uuid, COLLECTION_UUID)
+
+    def test_non_200_returns_none_and_sets_last_err(self):
+        """D8: on 401 the method must return None (not an empty truthy
+        Collection) and expose last_err, or _audit.py's reauth branch is dead."""
+        c = make_client()
+        with requests_mock.Mocker() as m:
+            m.get(self.URL, status_code=401, json={"message": "Unauthorized"})
+            col = c.get_owningCollection(ITEM_UUID)
+            self.assertIsNone(col)
+            self.assertIsNotNone(c.last_err)
+            self.assertEqual(c.last_err.status_code, 401)
 
 
 if __name__ == "__main__":

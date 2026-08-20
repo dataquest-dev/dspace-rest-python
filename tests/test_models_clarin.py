@@ -79,6 +79,13 @@ class TestGroup(unittest.TestCase):
         self.assertEqual((g.uuid, g.name, g.permanent), (GROUP_UUID, "submitters", True))
         self.assertEqual(g.as_dict()["name"], "submitters")
 
+    @pytest.mark.dtq_only
+    def test_from_none_does_not_crash(self):
+        """D7: Group(None) must yield an empty object, not a TypeError - the
+        create_submit_group / parse-failure paths can hand it None."""
+        g = Group(None)
+        self.assertIsNone(g.name)
+
 
 class TestUser(unittest.TestCase):
     """User is built by get_user_by_email / consumed by add_member."""
@@ -88,6 +95,12 @@ class TestUser(unittest.TestCase):
         self.assertEqual((u.uuid, u.email, u.netid), (EPERSON_UUID, "a@b.c", "n1"))
         self.assertTrue(u.canLogIn)
         self.assertEqual(u.as_dict()["email"], "a@b.c")
+
+    @pytest.mark.dtq_only
+    def test_from_none_does_not_crash(self):
+        """D7: User(None) must yield an empty object, not a TypeError."""
+        u = User(None)
+        self.assertIsNone(u.email)
 
 
 if __name__ == "__main__":

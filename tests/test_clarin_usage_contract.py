@@ -53,6 +53,16 @@ class TestImportClarinPolicyChain(unittest.TestCase):
             self.assertEqual(r.status_code, 200)
             self.assertEqual(m.last_request.method, "PUT")
 
+    @pytest.mark.dtq_only
+    def test_missing_bundle_aborts_cleanly(self):
+        """D1: when the bundle lookup fails, get_bundle_by_name is None and the
+        chain stops - it must not crash on a NoneType subscript."""
+        c = make_client()
+        with requests_mock.Mocker() as m:
+            m.get(f"{API}/core/items/{ITEM_UUID}/bundles",
+                  status_code=500, text="boom")
+            self.assertIsNone(c.get_bundle_by_name("ORIGINAL", ITEM_UUID))
+
 
 class TestImportClarinLicenseIngest(unittest.TestCase):
     """Mirrors dspace-import-clarin - read a collection's items, then build the
@@ -118,6 +128,21 @@ class TestRestTestSubmitterSetup(unittest.TestCase):
             self.assertIsInstance(group, Group)
 
             self.assertTrue(c.add_member(group, user))
+
+    @pytest.mark.dtq_only
+    def test_unknown_email_stops_before_add_member(self):
+        """D4: an unknown email must resolve to None so the consumer's
+        `if user:` guard skips group creation - not proceed with a uuid-less
+        User and fail deep inside add_member."""
+        c = make_client()
+        with requests_mock.Mocker() as m:
+            m.get(f"{API}/eperson/epersons/search/byEmail",
+                  status_code=404, json={"timestamp": "now"})
+
+            user = c.get_user_by_email("ghost@nowhere")
+            self.assertIsNone(user)
+            # consumer guard: nothing past the lookup should have been requested
+            self.assertEqual(len(m.request_history), 1)
 
 
 class TestRestTestBitstreamPolicyFlow(unittest.TestCase):
