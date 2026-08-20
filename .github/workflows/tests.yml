@@ -1,0 +1,164 @@
+name: Tests
+
+on:
+  push:
+    # dtq is the mainline; main is the CLARIN branch we are validating a merge
+    # into. feat/** and fix/** get CI before they open a PR.
+    branches: [ dtq, main, 'feat/**', 'fix/**' ]
+  pull_request:
+  workflow_dispatch:      # manual validation of a merge candidate
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Matches the DSpace-ISstag-integration consumer CI matrix; the library
+        # itself declares support for >=3.8 (see setup.py).
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            setup.py
+            requirements-test.txt
+
+      - name: Install package + test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+          pip install -r requirements-test.txt
+
+      - name: Run tests
+        # Coverage floor guards against the CLARIN surface silently sliding back
+        # toward the zero it had before test/clarin-usage-coverage landed.
+        run: >
+          python -m pytest tests/ -v
+          --cov=dspace_rest_client --cov-report=term-missing
+          --cov-fail-under=70
+
+  differential-contract:
+    # THE MERGE GATE. Run the CLARIN consumer-contract suite against BOTH the
+    # dtq implementation (this checkout) and the main implementation (swapped in
+    # from origin/main). A test green on both proves the merge preserves that
+    # behaviour. Tests that deliberately encode a dtq fix or behaviour change
+    # are marked @pytest.mark.dtq_only and are skipped on the main leg.
+    #
+    # Leg selection targets the four CLARIN test files explicitly: the DQ test
+    # modules import dtq-only symbols (ResourcePolicy, ...) at module scope, so
+    # collecting them against the main implementation would be an import error.
+    name: CLARIN contract vs ${{ matrix.impl }} impl
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        impl: [dtq, main]
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0        # need origin/main to swap the implementation in
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+
+      - name: Install test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-test.txt
+
+      - name: Swap in the ${{ matrix.impl }} implementation
+        if: matrix.impl != 'dtq'
+        run: git checkout "origin/${{ matrix.impl }}" -- dspace_rest_client/
+
+      - name: Run CLARIN contract suite
+        run: |
+          FILES="tests/test_clarin_read.py tests/test_clarin_write.py \
+                 tests/test_models_clarin.py tests/test_clarin_usage_contract.py"
+          if [ "${{ matrix.impl }}" = "dtq" ]; then
+            python -m pytest $FILES -v            # full CLARIN surface, incl. dtq_only
+          else
+            python -m pytest $FILES -v -m "not dtq_only"   # shared contract only
+          fi
+
+  # ---- Consumer smoke jobs -------------------------------------------------
+  # Turn "the API surface is a superset" into "the consumers still import/run".
+  # Gated on CONSUMER_READ_TOKEN: until that read-scoped token for the private
+  # consumer repos exists, the gate job reports enabled=false and consumer-smoke
+  # is skipped (a clean green), per plan §6.3.
+  check-consumer-token:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.probe.outputs.enabled }}
+    steps:
+      - id: probe
+        env:
+          TOKEN: ${{ secrets.CONSUMER_READ_TOKEN }}
+        run: echo "enabled=${{ env.TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+
+  consumer-smoke:
+    needs: check-consumer-token
+    if: needs.check-consumer-token.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - repo: DSpace-ISstag-integration
+            ref: main
+            smoke: python -m pytest tests/ mcp/tests/ -q
+          - repo: dspace-rest-test
+            ref: master
+            smoke: python -c "import dspace_rest_client.client"
+          - repo: dspace-import-clarin
+            ref: main
+            smoke: python -c "import dspace_rest_client.client"
+          # dspace-item-importer is intentionally omitted until its .gitmodules
+          # is repointed off the deleted `dtq-dev` branch (plan §6.3 / brief §5).
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: candidate
+
+      - uses: actions/checkout@v6
+        with:
+          repository: dataquest-dev/${{ matrix.repo }}
+          ref: ${{ matrix.ref }}
+          token: ${{ secrets.CONSUMER_READ_TOKEN }}
+          submodules: recursive
+          path: consumer
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Point the consumer submodule at this candidate commit
+        run: |
+          rm -rf consumer/libs/dspace-rest-python
+          cp -r candidate consumer/libs/dspace-rest-python
+
+      - name: Install and smoke
+        working-directory: consumer
+        run: |
+          python -m pip install --upgrade pip
+          pip install ./libs/dspace-rest-python
+          if [ -f requirements.lock ]; then pip install -r requirements.lock; fi
+          if [ -f libs/dspace-rest-python/requirements-test.txt ]; then
+            pip install -r libs/dspace-rest-python/requirements-test.txt
+          fi
+          ${{ matrix.smoke }}

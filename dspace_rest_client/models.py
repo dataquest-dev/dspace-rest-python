@@ -13,7 +13,7 @@ import json
 
 
 __all__ = ['DSpaceObject', 'HALResource', 'ExternalDataObject', 'SimpleDSpaceObject', 'Community',
-           'Collection', 'Item', 'Bundle', 'Bitstream', 'User', 'Group']
+           'Collection', 'Item', 'Bundle', 'Bitstream', 'User', 'Group', 'ResourcePolicy']
 
 
 class HALResource:
@@ -28,13 +28,19 @@ class HALResource:
         Default constructor
         @param api_resource: optional API resource (JSON) from a GET response or successful POST can populate instance
         """
+        self._from_d = None
         if api_resource is not None:
+            self._from_d = api_resource
             if 'type' in api_resource:
                 self.type = api_resource['type']
             if '_links' in api_resource:
                 self.links = api_resource['_links'].copy()
             else:
                 self.links = {'self': {'href': None}}
+            if '_embedded' in api_resource:
+                self.embedded = api_resource['_embedded'].copy()
+            else:
+                self.embedded = {}
 
 class AddressableHALResource(HALResource):
     id = None
@@ -135,6 +141,10 @@ class DSpaceObject(HALResource):
             if '_links' in api_resource:
                 self.links = api_resource['_links'].copy()
 
+    @property
+    def resourcePolicies(self):
+        return (self._from_d or {}).get('resourcePolicies')
+
     def add_metadata(self, field, value, language=None, authority=None, confidence=-1, place=None):
         """
         Add metadata to a DSO. This is performed on the local object only, it is not an API operation (see patch)
@@ -227,9 +237,9 @@ class Item(SimpleDSpaceObject):
         """
         if dso is not None:
             api_resource = dso.as_dict()
-            super(Item, self).__init__(dso=dso)
+            super().__init__(dso=dso)
         else:
-            super(Item, self).__init__(api_resource)
+            super().__init__(api_resource)
 
         if api_resource is not None:
             self.type = 'item'
@@ -253,7 +263,7 @@ class Item(SimpleDSpaceObject):
         Return a dict representation of this Item, based on super with item-specific attributes added
         @return: dict of Item for API use
         """
-        dso_dict = super(Item, self).as_dict()
+        dso_dict = super().as_dict()
         item_dict = {'inArchive': self.inArchive, 'discoverable': self.discoverable, 'withdrawn': self.withdrawn}
         return {**dso_dict, **item_dict}
 
@@ -277,7 +287,7 @@ class Community(SimpleDSpaceObject):
         Default constructor. Call DSpaceObject init then set item-specific attributes
         @param api_resource: API result object to use as initial data
         """
-        super(Community, self).__init__(api_resource)
+        super().__init__(api_resource)
         self.type = 'community'
 
     def as_dict(self):
@@ -285,7 +295,7 @@ class Community(SimpleDSpaceObject):
         Return a dict representation of this Community, based on super with community-specific attributes added
         @return: dict of Item for API use
         """
-        dso_dict = super(Community, self).as_dict()
+        dso_dict = super().as_dict()
         # TODO: More community-specific stuff
         community_dict = {}
         return {**dso_dict, **community_dict}
@@ -302,15 +312,15 @@ class Collection(SimpleDSpaceObject):
         Default constructor. Call DSpaceObject init then set collection-specific attributes
         @param api_resource: API result object to use as initial data
         """
-        super(Collection, self).__init__(api_resource)
+        super().__init__(api_resource)
         self.type = 'collection'
 
     def as_dict(self):
-        dso_dict = super(Collection, self).as_dict()
         """
         Return a dict representation of this Collection, based on super with collection-specific attributes added
         @return: dict of Item for API use
         """
+        dso_dict = super().as_dict()
         collection_dict = {}
         return {**dso_dict, **collection_dict}
 
@@ -326,7 +336,7 @@ class Bundle(DSpaceObject):
         Default constructor. Call DSpaceObject init then set bundle-specific attributes
         @param api_resource: API result object to use as initial data
         """
-        super(Bundle, self).__init__(api_resource)
+        super().__init__(api_resource)
         self.type = 'bundle'
 
     def as_dict(self):
@@ -334,7 +344,7 @@ class Bundle(DSpaceObject):
         Return a dict representation of this Bundle, based on super with bundle-specific attributes added
         @return: dict of Bundle for API use
         """
-        dso_dict = super(Bundle, self).as_dict()
+        dso_dict = super().as_dict()
         bundle_dict = {}
         return {**dso_dict, **bundle_dict}
 
@@ -358,8 +368,11 @@ class Bitstream(DSpaceObject):
         Default constructor. Call DSpaceObject init then set bitstream-specific attributes
         @param api_resource: API result object to use as initial data
         """
-        super(Bitstream, self).__init__(api_resource)
+        super().__init__(api_resource)
         self.type = 'bitstream'
+        # tolerate Bitstream(None): other models guard this, and without it the
+        # membership tests below raise TypeError on a None api_resource.
+        api_resource = api_resource or {}
         if 'bundleName' in api_resource:
             self.bundleName = api_resource['bundleName']
         if 'sizeBytes' in api_resource:
@@ -374,7 +387,7 @@ class Bitstream(DSpaceObject):
         Return a dict representation of this Bitstream, based on super with bitstream-specific attributes added
         @return: dict of Bitstream for API use
         """
-        dso_dict = super(Bitstream, self).as_dict()
+        dso_dict = super().as_dict()
         bitstream_dict = {'bundleName': self.bundleName, 'sizeBytes': self.sizeBytes, 'checkSum': self.checkSum,
                           'sequenceId': self.sequenceId}
         return {**dso_dict, **bitstream_dict}
@@ -393,7 +406,7 @@ class Group(DSpaceObject):
         Default constructor. Call DSpaceObject init then set group-specific attributes
         @param api_resource: API result object to use as initial data
         """
-        super(Group, self).__init__(api_resource)
+        super().__init__(api_resource)
         self.type = 'group'
         if 'name' in api_resource:
             self.name = api_resource['name']
@@ -405,7 +418,7 @@ class Group(DSpaceObject):
         Return a dict representation of this Group, based on super with group-specific attributes added
         @return: dict of Group for API use
         """
-        dso_dict = super(Group, self).as_dict()
+        dso_dict = super().as_dict()
         group_dict = {'name': self.name, 'permanent': self.permanent}
         return {**dso_dict, **group_dict}
 
@@ -415,12 +428,12 @@ class User(SimpleDSpaceObject):
     Extends DSpaceObject to implement specific attributes and methods for users (aka. EPersons)
     """
     type = 'user'
-    name = None,
-    netid = None,
-    lastActive = None,
-    canLogIn = False,
-    email = None,
-    requireCertificate = False,
+    name = None
+    netid = None
+    lastActive = None
+    canLogIn = False
+    email = None
+    requireCertificate = False
     selfRegistered = False
 
     def __init__(self, api_resource=None):
@@ -428,7 +441,7 @@ class User(SimpleDSpaceObject):
         Default constructor. Call DSpaceObject init then set user-specific attributes
         @param api_resource: API result object to use as initial data
         """
-        super(User, self).__init__(api_resource)
+        super().__init__(api_resource)
         self.type = 'user'
         if 'name' in api_resource:
             self.name = api_resource['name']
@@ -450,7 +463,7 @@ class User(SimpleDSpaceObject):
         Return a dict representation of this User, based on super with user-specific attributes added
         @return: dict of User for API use
         """
-        dso_dict = super(User, self).as_dict()
+        dso_dict = super().as_dict()
         user_dict = {'name': self.name, 'netid': self.netid, 'lastActive': self.lastActive, 'canLogIn': self.canLogIn,
                      'email': self.email, 'requireCertificate': self.requireCertificate,
                      'selfRegistered': self.selfRegistered}
@@ -463,33 +476,33 @@ class InProgressSubmission(AddressableHALResource):
     type = None
 
     def __init__(self, api_resource):
-        super(InProgressSubmission, self).__init__(api_resource)
+        super().__init__(api_resource)
         if 'lastModified' in api_resource:
             self.lastModified = api_resource['lastModified']
         if 'step' in api_resource:
-            self.step = api_resource['lastModified']
+            self.step = api_resource['step']
         if 'sections' in api_resource:
             self.sections = api_resource['sections'].copy()
         if 'type' in api_resource:
-            self.lastModified = api_resource['lastModified']
+            self.type = api_resource['type']
 
     def as_dict(self):
-        parent_dict = super(InProgressSubmission, self).as_dict()
-        dict = {
+        parent_dict = super().as_dict()
+        submission_dict = {
             'lastModified': self.lastModified,
             'step': self.step,
             'sections': self.sections,
             'type': self.type
         }
-        return {**parent_dict, **dict}
+        return {**parent_dict, **submission_dict}
 
 class WorkspaceItem(InProgressSubmission):
 
     def __init__(self, api_resource):
-        super(WorkspaceItem, self).__init__(api_resource)
+        super().__init__(api_resource)
 
     def as_dict(self):
-        return super(WorkspaceItem, self).as_dict()
+        return super().as_dict()
 
 class EntityType(AddressableHALResource):
     """
@@ -498,25 +511,25 @@ class EntityType(AddressableHALResource):
     are all common entity types used in DSpace 7+
     """
     def __init__(self, api_resource):
-        super(EntityType, self).__init__(api_resource)
+        super().__init__(api_resource)
         if 'label' in api_resource:
             self.label = api_resource['label']
         if 'type' in api_resource:
-            self.label = api_resource['type']
+            self.type = api_resource['type']
 
 class RelationshipType(AddressableHALResource):
     """
     TODO: RelationshipType
     """
     def __init__(self, api_resource):
-        super(RelationshipType, self).__init__(api_resource)
+        super().__init__(api_resource)
 
 class License(AddressableHALResource):
     """
     Specific attributes and functions for licenses
     """
     def __init__(self, api_resource=None):
-        super(License, self).__init__(api_resource)
+        super().__init__(api_resource)
         api_resource = api_resource or {}
         self.type = 'clarinlicense'
         self.name = api_resource.get('name')
@@ -549,7 +562,7 @@ class Label(AddressableHALResource):
         Default constructor. Call DSpaceObject init then set label-specific attributes
         @param api_resource: API result object to use as initial data
         """
-        super(Label, self).__init__(api_resource)
+        super().__init__(api_resource)
         api_resource = api_resource or {}
         self.type = 'clarinlicenselabel'
         self.label = api_resource.get('label')
@@ -565,3 +578,44 @@ class Label(AddressableHALResource):
             'icon': self.icon,
             'is_extended': self.extended
         }
+
+
+class ResourcePolicy(AddressableHALResource):
+    """
+        DQ specific. Extends Addressable HAL Resource to model a resource policy.
+    """
+    def __init__(self, api_resource: dict):
+        super().__init__(api_resource)
+        api_resource = api_resource or {}
+        self.name = api_resource.get('name')
+        self.description = api_resource.get('description')
+        self.startDate = api_resource.get('startDate')
+        self.endDate = api_resource.get('endDate')
+        self.type = api_resource.get('type')
+        self.action = api_resource.get('action')
+        self.policyType = api_resource.get('policyType')
+        # Check for direct groupName/groupUUID (cached format from as_dict())
+        self.groupName = api_resource.get('groupName')
+        self.groupUUID = api_resource.get('groupUUID')
+        # If not found, try extracting from _embedded structure (live API format)
+        if self.groupName is None and '_embedded' in api_resource:
+            if 'group' in api_resource['_embedded']:
+                self.groupName = api_resource['_embedded']['group'].get('name')
+                self.groupUUID = api_resource['_embedded']['group'].get('uuid')
+
+    def as_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'type': self.type,
+            'description': self.description,
+            'startDate': self.startDate,
+            'endDate': self.endDate,
+            'action': self.action,
+            'policyType': self.policyType,
+            'groupName': self.groupName,
+            'groupUUID': self.groupUUID,
+        }
+
+    def __repr__(self):
+        return f"ResourcePolicy: {self.name} [{self.groupName}] [action: {self.action}] [type: {self.type}]"
