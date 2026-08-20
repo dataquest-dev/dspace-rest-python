@@ -32,6 +32,10 @@ ITEM_UUID = "11111111-1111-1111-1111-111111111111"
 COLLECTION_UUID = "22222222-2222-2222-2222-222222222222"
 BITSTREAM_UUID = "9f54ef33-c454-4d8e-a5fe-79d8291045ba"
 ANON_GROUP_UUID = "6ecfd145-3b7d-429e-ab31-ef6905a05763"
+# Used by the CLARIN-side suites (eperson/group lookups, submit groups).
+EPERSON_UUID = "33333333-3333-3333-3333-333333333333"
+GROUP_UUID = "44444444-4444-4444-4444-444444444444"
+BUNDLE_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 
 
 def make_client(api_endpoint: str = API) -> DSpaceClient:
@@ -112,3 +116,65 @@ def policy_json(pid: int = 1, action: str = "READ", group_name: str = "Anonymous
     if start_date is not None:
         d["startDate"] = start_date
     return d
+
+
+def raw_policy_json(pid: int = 1, action: str = "READ", **extra) -> dict:
+    """A resource policy in the *raw* shape the CLARIN ``get_resource_policy``
+    returns (a plain dict the caller subscripts as ``["id"]``), not a model."""
+    d = {"id": pid, "action": action, "type": "resourcepolicy"}
+    d.update(extra)
+    return d
+
+
+def group_json(uuid: str = GROUP_UUID, name: str = "Anonymous",
+               permanent: bool = False, **extra) -> dict:
+    d = {"uuid": uuid, "name": name, "type": "group", "permanent": permanent}
+    d.update(extra)
+    return d
+
+
+def user_json(uuid: str = EPERSON_UUID, email: str = "tester@dspace.test",
+              name: str = "Tester", netid: str = None, can_login: bool = True,
+              **extra) -> dict:
+    d = {"uuid": uuid, "type": "eperson", "name": name, "email": email,
+         "canLogIn": can_login}
+    if netid is not None:
+        d["netid"] = netid
+    d.update(extra)
+    return d
+
+
+def label_json(lid: int = 10, label: str = "PUB", title: str = "Publicly available",
+               icon: str = "pub.png", extended: bool = False) -> dict:
+    return {"id": lid, "label": label, "title": title, "icon": icon,
+            "extended": extended}
+
+
+def license_json(lid: int = 1, name: str = "CC-BY",
+                 definition: str = "https://creativecommons.org/licenses/by/4.0/",
+                 confirmation: int = 1, required_info: str = "SEND_TOKEN",
+                 label: dict = None, extended: list = None) -> dict:
+    d = {"id": lid, "name": name, "definition": definition,
+         "confirmation": confirmation, "requiredInfo": required_info}
+    if label is not None:
+        d["clarinLicenseLabel"] = label
+    if extended is not None:
+        d["extendedClarinLicenseLabels"] = extended
+    return d
+
+
+def clarin_allowance_json(aid: int = 1, **extra) -> dict:
+    d = {"id": aid, "type": "clarinlruallowance"}
+    d.update(extra)
+    return d
+
+
+def search_envelope(items: list) -> dict:
+    """The ``discover/search/objects`` HAL envelope, wrapping each item as an
+    ``indexableObject``. Used by ``get_items_from_collection`` and
+    ``search_objects``.
+    """
+    return {"_embedded": {"searchResult": {
+        "page": {"totalElements": len(items)},
+        "_embedded": {"objects": [
+            {"_embedded": {"indexableObject": it}} for it in items]}}}}

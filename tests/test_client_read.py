@@ -7,6 +7,7 @@ objects / shapes the callers rely on.
 """
 import unittest
 
+import pytest
 import requests_mock
 
 import _helpers  # noqa: F401
@@ -77,6 +78,22 @@ class TestGetItems(unittest.TestCase):
             p = sent_params(m.last_request)
             self.assertEqual(p["page"], ["2"])
             self.assertEqual(p["size"], ["50"])
+
+    @pytest.mark.dtq_only
+    def test_no_arg_defaults_to_first_page(self):
+        """B1: the no-arg get_items() form (dspace-rest-test .../create_bitstreams.py
+        :145) sends page=0&size=20 and returns items. On main the *second*,
+        shadowing `def get_items(self)` gated on 'collections' and always
+        returned [] - this is the behaviour that changes on merge."""
+        c = make_client()
+        with requests_mock.Mocker() as m:
+            m.get(f"{API}/core/items",
+                  json=embedded("items", [item_json("i1", "one")]))
+            items = c.get_items()
+            self.assertEqual(len(items), 1)
+            p = sent_params(m.last_request)
+            self.assertEqual(p["page"], ["0"])
+            self.assertEqual(p["size"], ["20"])
 
 
 class TestGetItem(unittest.TestCase):
