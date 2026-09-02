@@ -251,6 +251,20 @@ class TestCreateBitstream(unittest.TestCase):
                             if request.url.split("?")[0] == upload_url]
             self.assertEqual(len(upload_calls), 2)
 
+    def test_xsrf_token_from_upload_response_updates_session(self):
+        # create_bitstream must refresh the CSRF token through the one shared
+        # update_token() path, exactly like every other write method.
+        c = make_client()
+        bundle = Bundle(bundle_json("bnd"))
+        with requests_mock.Mocker() as m:
+            m.post(f"{API}/core/bundles/bnd/bitstreams", status_code=201,
+                   headers={"DSPACE-XSRF-TOKEN": "fresh-token"},
+                   json=bitstream_json("bsnew", "a.pdf", size=20))
+            c.create_bitstream(bundle=bundle, name="a.pdf", path=self.path,
+                               mime="application/pdf")
+            self.assertEqual(c.session.headers["X-XSRF-Token"], "fresh-token")
+            self.assertEqual(c.session.cookies["X-XSRF-Token"], "fresh-token")
+
 
 class TestCreateClarinAllowances(unittest.TestCase):
 

@@ -110,12 +110,51 @@ class TestUuidValidation(unittest.TestCase):
                 resource_uuid=None, group_uuid=BITSTREAM_UUID)),
             ("create_resourcepolicy_group", lambda: c.create_resourcepolicy(
                 resource_uuid=BITSTREAM_UUID, group_uuid=None)),
+            ("get_owningCollection", lambda: c.get_owningCollection(None)),
         )
         with requests_mock.Mocker() as m:
             for name, call in cases:
                 with self.subTest(name=name):
                     self.assertIsNone(call())
             self.assertEqual(m.call_count, 0)
+
+    def test_uuid_endpoints_reject_non_string_values_without_request(self):
+        c = make_client()
+        cases = (
+            ("get_item", lambda v: c.get_item(v)),
+            ("get_dso", lambda v: c.get_dso(f"{API}/core/items", v)),
+            ("get_resourcepolicy", lambda v: c.get_resourcepolicy(v)),
+            ("get_owningCollection", lambda v: c.get_owningCollection(v)),
+        )
+        with requests_mock.Mocker() as m:
+            for name, call in cases:
+                for value in (None, 42, object(), ["not", "a", "uuid"]):
+                    with self.subTest(name=name, value=type(value).__name__):
+                        # bare UUID(value) raises TypeError (not ValueError) for
+                        # these, which used to escape the caller's except clause
+                        self.assertIsNone(call(value))
+            self.assertEqual(m.call_count, 0)
+
+
+class TestListEndpointsOnFailedResponses(unittest.TestCase):
+    """A non-JSON / error body must not become a TypeError on ``'_embedded' in None``."""
+
+    def test_list_endpoints_return_none_on_non_json_body(self):
+        c = make_client()
+        cases = (
+            ("get_communities", f"{API}/core/communities",
+             lambda: c.get_communities()),
+            ("get_collections", f"{API}/core/collections",
+             lambda: c.get_collections()),
+            ("get_bundle_by_name", f"{API}/core/items/{ITEM_UUID}/bundles",
+             lambda: c.get_bundle_by_name("ORIGINAL", ITEM_UUID)),
+        )
+        for name, url, call in cases:
+            for status, body in ((404, "Not Found"), (200, "<html>nope</html>")):
+                with self.subTest(name=name, status=status), \
+                        requests_mock.Mocker() as m:
+                    m.get(url, status_code=status, text=body)
+                    self.assertIsNone(call())
 
 
 class TestGetBundles(unittest.TestCase):
