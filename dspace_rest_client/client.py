@@ -103,6 +103,9 @@ class DSpaceClient:
         :param api_endpoint:    base path to DSpace REST API, eg. http://localhost:8080/server/api
         :param username:        username with appropriate privileges to perform operations on REST API
         :param password:        password for the above username
+        :param timeout:         default per-request timeout in seconds, used by every request unless a
+                                method call overrides it (eg. create_bitstream's own timeout argument).
+                                None (default) falls back to DEFAULT_TIMEOUT (60s).
         """
         self.session = requests.Session()
         self.API_ENDPOINT = api_endpoint
@@ -845,6 +848,10 @@ class DSpaceClient:
         @param metadata:    Full metadata JSON
         @param retry:       A 'retried' indicator. If the first attempt fails due to an expired or missing auth
                             token, the request will retry once, after the token is refreshed. (default: False)
+        @param timeout:     Per-call timeout in seconds for this upload, overriding self.timeout - useful for
+                            large files that need longer than the client's default. None (default) falls back
+                            to self.timeout. Preserved across the CSRF-retry recursion, so it still applies
+                            to the retried request.
         @return:            constructed Bitstream object from the API response, or None if the operation failed.
         """
         # TODO: It is probably wise to allow the bundle UUID to be simply passed as an alternative to having the full
