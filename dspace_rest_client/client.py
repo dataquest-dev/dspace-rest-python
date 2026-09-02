@@ -881,7 +881,7 @@ class DSpaceClient:
             self.session.cookies.update({'X-XSRF-Token': t})
         if not retry and r.status_code in (401, 403):
             r_json = parse_json(r)
-            if 'message' in r_json and 'CSRF token' in r_json['message']:
+            if 'message' in (r_json or {}) and 'CSRF token' in r_json['message']:
                 _logger.debug("Retrying request with updated CSRF token")
             else:
                 self.authenticate()
