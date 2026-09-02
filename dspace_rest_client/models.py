@@ -32,9 +32,12 @@ __all__ = [
 class HALResource:
     """
     Base class to represent HAL+JSON API resources
+
+    Every attribute is a plain instance attribute assigned here in __init__.
+    Nothing is declared at class level: a class-level default is shared by all
+    instances, which for a mutable default (links, embedded, metadata,
+    checkSum, sections) means one instance's mutation leaks into every other.
     """
-    links: dict[str, Any]
-    type: str | None = None
 
     def __init__(self, api_resource: dict[str, Any] | None = None) -> None:
         """
@@ -42,6 +45,7 @@ class HALResource:
         @param api_resource: optional API resource (JSON) from a GET response or successful POST can populate instance
         """
         self._from_d: dict[str, Any] | None = None
+        self.type: str | None = None
         self.links: dict[str, Any] = {}
         self.embedded: dict[str, Any] = {}
         if api_resource is not None:
@@ -57,10 +61,10 @@ class HALResource:
 
 
 class AddressableHALResource(HALResource):
-    id: Any = None
 
     def __init__(self, api_resource: dict[str, Any] | None = None) -> None:
         super().__init__(api_resource)
+        self.id: Any = None
         if api_resource is not None:
             if 'id' in api_resource:
                 self.id = api_resource['id']
@@ -73,11 +77,6 @@ class ExternalDataObject(HALResource):
     """
     Generic External Data Object as configured in DSpace's external data providers framework
     """
-    id: Any = None
-    display: Any = None
-    value: Any = None
-    externalSource: Any = None
-    metadata: dict[str, Any]
 
     def __init__(self, api_resource: dict[str, Any] | None = None) -> None:
         """
@@ -86,6 +85,10 @@ class ExternalDataObject(HALResource):
         """
         super().__init__(api_resource)
 
+        self.id: Any = None
+        self.display: Any = None
+        self.value: Any = None
+        self.externalSource: Any = None
         self.metadata: dict[str, Any] = {}
 
         if api_resource is not None:
@@ -119,13 +122,6 @@ class DSpaceObject(HALResource):
     operations are included in the dict returned by asDict(). Implements toJSON() as well.
     This class can be used on its own but is generally expected to be extended by other types: Item, Bitstream, etc.
     """
-    uuid: str | None = None
-    name: str | None = None
-    handle: str | None = None
-    metadata: dict[str, Any]
-    lastModified: Any = None
-    type: str | None = None
-    parent: Any = None
 
     def __init__(
         self,
@@ -138,6 +134,12 @@ class DSpaceObject(HALResource):
         """
         super().__init__(api_resource)
         self.type = None
+        self.id: Any = None
+        self.uuid: str | None = None
+        self.name: str | None = None
+        self.handle: str | None = None
+        self.lastModified: Any = None
+        self.parent: Any = None
         self.metadata: dict[str, Any] = {}
 
         if dso is not None:
@@ -252,10 +254,6 @@ class Item(SimpleDSpaceObject):
     """
     Extends DSpaceObject to implement specific attributes and functions for items
     """
-    type = 'item'
-    inArchive = False
-    discoverable = False
-    withdrawn = False
 
     def __init__(
         self,
@@ -272,11 +270,20 @@ class Item(SimpleDSpaceObject):
         else:
             super().__init__(api_resource)
 
+        # defaults for the no-api_resource case; a resource overrides them below.
+        # NB: unlike the other subclasses, Item only stamps `type` when it is
+        # built from a resource. DSpaceObject.__init__ has already set
+        # self.type = None, so the old class-level `type = 'item'` was shadowed
+        # on every instance and never readable - dropping it changes nothing.
+        self.inArchive = False
+        self.discoverable = False
+        self.withdrawn = False
+
         if api_resource is not None:
             self.type = 'item'
-            self.inArchive = api_resource['inArchive'] if 'inArchive' in api_resource else True
-            self.discoverable = api_resource['discoverable'] if 'discoverable' in api_resource else False
-            self.withdrawn = api_resource['withdrawn'] if 'withdrawn' in api_resource else False
+            self.inArchive = api_resource.get('inArchive', True)
+            self.discoverable = api_resource.get('discoverable', False)
+            self.withdrawn = api_resource.get('withdrawn', False)
 
     def get_metadata_values(self, field: str) -> list:
         """
@@ -311,7 +318,6 @@ class Community(SimpleDSpaceObject):
     """
     Extends DSpaceObject to implement specific attributes and functions for communities
     """
-    type = 'community'
 
     def __init__(self, api_resource: dict[str, Any] | None = None) -> None:
         """
@@ -326,7 +332,6 @@ class Collection(SimpleDSpaceObject):
     """
     Extends DSpaceObject to implement specific attributes and functions for collections
     """
-    type = 'collection'
 
     def __init__(self, api_resource: dict[str, Any] | None = None) -> None:
         """
@@ -341,7 +346,6 @@ class Bundle(DSpaceObject):
     """
     Extends DSpaceObject to implement specific attributes and functions for bundles
     """
-    type = 'bundle'
 
     def __init__(self, api_resource: dict[str, Any] | None = None) -> None:
         """
@@ -356,12 +360,6 @@ class Bitstream(DSpaceObject):
     """
     Extends DSpaceObject to implement specific attributes and functions for bundles
     """
-    type = 'bitstream'
-    # Bitstream has a few extra fields specific to file storage
-    bundleName: str | None = None
-    sizeBytes: int | None = None
-    checkSum: dict[str, Any]
-    sequenceId: int | None = None
 
     def __init__(self, api_resource: dict[str, Any] | None = None) -> None:
         """
@@ -370,10 +368,11 @@ class Bitstream(DSpaceObject):
         """
         super().__init__(api_resource)
         self.type = 'bitstream'
-        self.bundleName = None
-        self.sizeBytes = None
-        self.checkSum = {'checkSumAlgorithm': 'MD5', 'value': None}
-        self.sequenceId = None
+        # Bitstream has a few extra fields specific to file storage
+        self.bundleName: str | None = None
+        self.sizeBytes: int | None = None
+        self.checkSum: dict[str, Any] = {'checkSumAlgorithm': 'MD5', 'value': None}
+        self.sequenceId: int | None = None
         api_resource = api_resource or {}
         if 'bundleName' in api_resource:
             self.bundleName = api_resource['bundleName']
@@ -399,9 +398,6 @@ class Group(DSpaceObject):
     """
     Extends DSpaceObject to implement specific attributes and methods for groups (aka. EPersonGroups)
     """
-    type = 'group'
-    name = None
-    permanent = False
 
     def __init__(self, api_resource: dict[str, Any] | None = None) -> None:
         """
@@ -433,14 +429,6 @@ class User(SimpleDSpaceObject):
     """
     Extends DSpaceObject to implement specific attributes and methods for users (aka. EPersons)
     """
-    type = 'user'
-    name = None
-    netid = None
-    lastActive = None
-    canLogIn = False
-    email = None
-    requireCertificate = False
-    selfRegistered = False
 
     def __init__(self, api_resource: dict[str, Any] | None = None) -> None:
         """
@@ -486,15 +474,11 @@ class User(SimpleDSpaceObject):
 
 
 class InProgressSubmission(AddressableHALResource):
-    lastModified: Any = None
-    step: Any = None
-    sections: dict[str, Any]
-    type: str | None = None
 
     def __init__(self, api_resource: dict[str, Any] | None = None) -> None:
         super().__init__(api_resource)
-        self.lastModified = None
-        self.step = None
+        self.lastModified: Any = None
+        self.step: Any = None
         self.sections: dict[str, Any] = {}
         self.type = None
         api_resource = api_resource or {}
@@ -531,6 +515,7 @@ class EntityType(AddressableHALResource):
 
     def __init__(self, api_resource: dict[str, Any]) -> None:
         super().__init__(api_resource)
+        self.label: Any = None
         if 'label' in api_resource:
             self.label = api_resource['label']
         if 'type' in api_resource:

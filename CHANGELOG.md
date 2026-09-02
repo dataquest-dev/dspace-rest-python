@@ -18,9 +18,14 @@ Date: Unreleased
 5. `get_communities`, `get_collections` and `get_bundle_by_name` return `None` on a
    failed or non-JSON response instead of raising `TypeError`.
 6. `add_metadata` / `remove_metadata` return `None` (not the client) on invalid input.
-7. Model instances no longer share class-level `links`, `embedded`, `checkSum` or
-   `sections` dicts, `Group()` / `User()` accept a `None` API resource, and
-   `Item.from_dso` / `DSpaceObject(dso=...)` deep-copy metadata instead of aliasing it.
+7. Model attribute defaults moved from the class body into `__init__` as plain
+   instance attributes, so no instance can share (or mutate) a class-level
+   `links`, `embedded`, `metadata`, `checkSum` or `sections` dict. `Group()` /
+   `User()` accept a `None` API resource, and `Item.from_dso` /
+   `DSpaceObject(dso=...)` deep-copy metadata instead of aliasing it. Side effect:
+   `id` on a `DSpaceObject` (and its subclasses) and `label` on an `EntityType`
+   now default to `None` rather than raising `AttributeError` when the API
+   resource omits them.
 8. `models.__all__` exports the full model surface re-exported by the package.
 9. Moved direct Solr support to the documented `solr` optional dependency group;
    `solr_query()` raises an actionable `RuntimeError` when the extra is missing.
