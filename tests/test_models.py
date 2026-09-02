@@ -12,7 +12,8 @@ import unittest
 import _helpers  # noqa: F401  (bootstraps sys.path for direct runs)
 from _helpers import no_warnings_logged
 from dspace_rest_client.models import (
-    Item, Community, Collection, Bundle, Bitstream, ResourcePolicy, Group, User)
+    DSpaceObject, HALResource, Item, Community, Collection, Bundle, Bitstream,
+    Group, User, InProgressSubmission, ResourcePolicy)
 
 
 class TestItem(unittest.TestCase):
@@ -44,6 +45,51 @@ class TestItem(unittest.TestCase):
         self.assertEqual(
             (d["inArchive"], d["discoverable"], d["withdrawn"]),
             (True, True, False))
+
+    def test_from_dso_does_not_alias_metadata(self):
+        source = DSpaceObject({
+            "metadata": {"dc.title": [{"value": "Original"}]}})
+
+        copied = Item.from_dso(source)
+        copied.metadata["dc.title"][0]["value"] = "Changed"
+
+        self.assertEqual(source.metadata["dc.title"][0]["value"], "Original")
+
+    def test_dso_constructor_does_not_alias_metadata(self):
+        source = DSpaceObject({
+            "metadata": {"dc.title": [{"value": "Original"}]}})
+
+        copied = Item(dso=source)
+        copied.metadata["dc.title"][0]["value"] = "Changed"
+
+        self.assertEqual(source.metadata["dc.title"][0]["value"], "Original")
+
+
+class TestMutableDefaults(unittest.TestCase):
+
+    def test_hal_links_are_isolated_between_instances(self):
+        first = HALResource()
+        second = HALResource()
+
+        first.links["next"] = {"href": "http://example.test/next"}
+
+        self.assertNotIn("next", second.links)
+
+    def test_bitstream_checksums_are_isolated_between_instances(self):
+        first = Bitstream()
+        second = Bitstream()
+
+        first.checkSum["value"] = "changed"
+
+        self.assertIsNone(second.checkSum["value"])
+
+    def test_submission_sections_are_isolated_between_instances(self):
+        first = InProgressSubmission({})
+        second = InProgressSubmission({})
+
+        first.sections["license"] = {"accepted": True}
+
+        self.assertNotIn("license", second.sections)
 
 
 class TestCommunityCollection(unittest.TestCase):
@@ -109,6 +155,10 @@ class TestBundleBitstream(unittest.TestCase):
         b = Bitstream(None)
         self.assertEqual(b.type, "bitstream")
         self.assertIsNone(b.uuid)
+
+    def test_group_and_user_from_none_do_not_crash(self):
+        self.assertEqual(Group(None).type, "group")
+        self.assertEqual(User(None).type, "user")
 
 
 class TestResourcePolicy(unittest.TestCase):

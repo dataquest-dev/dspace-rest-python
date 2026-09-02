@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dspace-rest-client"
-version = "0.1.10"
+version = "0.2.0"
 description = "A DSpace 7 REST API client library"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -34,6 +34,10 @@ dev = [
     "pylint",
     "mypy",
 ]
+release = [
+    "build>=1.2",
+    "twine>=5.1",
+]
 
 [project.urls]
 Documentation = "https://github.com/the-library-code/dspace-rest-python/blob/main/README.md"
@@ -53,7 +57,7 @@ target-version = "py38"
 [tool.ruff.lint]
 # E = pycodestyle, F = pyflakes, T20 = flake8-print (no print())
 select = ["E", "F", "T20"]
-ignore = ["F403", "F405", "E501", "E402", "F841", "E741"]
+ignore = ["E501", "E402", "E741"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["T20"]
