@@ -779,14 +779,6 @@ class DSpaceClient:
 
             if 'lastModified' in data:
                 data.pop('lastModified')
-            # if 'id' in data:
-            #     data.pop('id')
-            # if 'handle' in data:
-            #     data.pop('handle')
-            # if 'uuid' in data:
-            #     data.pop('uuid')
-            # if 'type' in data:
-            #     data.pop('type')
             r = self.api_put(url, params=params, json=data)
             if r.status_code == 200:
                 # 200 OK - success!
@@ -995,11 +987,7 @@ class DSpaceClient:
             prepared_req = self.session.prepare_request(req)
             r = self.session.send(prepared_req, proxies=self.proxies,
                                   timeout=timeout if timeout is not None else self.timeout)
-        if 'DSPACE-XSRF-TOKEN' in r.headers:
-            t = r.headers['DSPACE-XSRF-TOKEN']
-            _logger.debug(f'Updating token to {t}')
-            self.session.headers.update({'X-XSRF-Token': t})
-            self.session.cookies.update({'X-XSRF-Token': t})
+        self.update_token(r)
         if not retry and r.status_code in (401, 403):
             if _response_message_contains(r, 'CSRF token'):
                 _logger.debug("Retrying request with updated CSRF token")
@@ -1062,6 +1050,12 @@ class DSpaceClient:
         _logger.debug(f'Performing get on {url}')
         # Perform actual get
         r_json = self.fetch_resource(url, request_params)
+        if r_json is None:
+            # a failed / non-JSON response is an error, not "no communities" -
+            # returning None here matches the documented contract instead of
+            # raising an opaque TypeError on the membership test below.
+            _logger.error(f'Failed to fetch communities [{url}]')
+            return None
         # Empty list
         communities = []
         if '_embedded' in r_json:
@@ -1125,6 +1119,11 @@ class DSpaceClient:
 
         # Perform the actual request. By now, our URL and parameter should be properly set
         r_json = self.fetch_resource(url, params=request_params)
+        if r_json is None:
+            # see get_communities: an error is reported as None, not as an
+            # empty result or a TypeError.
+            _logger.error(f'Failed to fetch collections [{url}]')
+            return None
         # Empty list
         collections = []
         if '_embedded' in r_json:
@@ -1219,6 +1218,9 @@ class DSpaceClient:
         """
             Get owningCollection
         """
+        if not _is_valid_uuid(item_uuid):
+            _logger.error(f'Invalid item UUID: {item_uuid}')
+            return None
         url = f'{self.API_ENDPOINT}/core/items/{item_uuid}/owningCollection'
         try:
             r = self.api_get(url, None, None)
@@ -1496,10 +1498,13 @@ class DSpaceClient:
         Get a bundle by name for a specific item
         @param name:    Name of the bundle
         @param item_uuid: UUID of the item
-        @return:        Bundle object
+        @return:        Bundle object, or None if not found / on error
         """
         url = f'{self.API_ENDPOINT}/core/items/{item_uuid}/bundles'
         r_json = self.fetch_resource(url, params=None)
+        if r_json is None:
+            _logger.error(f'Failed to fetch bundles [{url}]')
+            return None
         if '_embedded' in r_json:
             if 'bundles' in r_json['_embedded']:
                 for bundle in r_json['_embedded']['bundles']:
@@ -1556,7 +1561,7 @@ class DSpaceClient:
             allowances = data.get('_embedded', {}).get('clarinlruallowances')
             if allowances:
                 return allowances
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             _logger.error(f"Error fetching CLARIN LRU allowances [{url}]: {e}")
         return None
 
@@ -1573,7 +1578,7 @@ class DSpaceClient:
             allowances = data.get('_embedded', {}).get('clarinlruallowances')
             if allowances:
                 return allowances
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             _logger.error(f"Error fetching user allowances: {e}")
         return None
 
@@ -1596,7 +1601,7 @@ class DSpaceClient:
             response = self.api_post(url, json=metadata_payload, params=params)
             if response.status_code == 200:
                 return True
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             _logger.error(f"Error managing user metadata: {e}")
         return False
 
@@ -1610,6 +1615,6 @@ class DSpaceClient:
             response = self.api_get(url, params=params)
             user_data = parse_json(response)
             return User(user_data)
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             _logger.error(f"Error retrieving user by email {email}: {e}")
             return None
