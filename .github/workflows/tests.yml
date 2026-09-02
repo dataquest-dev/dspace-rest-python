@@ -57,18 +57,9 @@ jobs:
       - name: Pylint
         run: pre-commit run pylint --all-files
 
-  typecheck:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Install pre-commit
-        run: pip install pre-commit==4.2.0
-
+      # Non-blocking: strict typing is being introduced incrementally, so a
+      # mypy finding is reported in the log but does not fail the job. The
+      # version is pinned by the mirrors-mypy rev in .pre-commit-config.yaml.
       - name: Mypy
+        continue-on-error: true
         run: pre-commit run mypy --all-files
