@@ -54,7 +54,9 @@ target-version = "py310"
 [tool.ruff.lint]
 # E = pycodestyle, F = pyflakes, T20 = flake8-print (no print())
 select = ["E", "F", "T20"]
-ignore = ["E501", "E402", "E741"]
+# E501 only: the upstream sources still carry long docstring/log lines that a
+# reflow would churn for no benefit. Everything else is enforced.
+ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["T20"]
@@ -68,9 +70,6 @@ py-version = "3.10"
 jobs = 0
 
 [tool.pylint.basic]
-# DSpace REST fields are camelCase (sizeBytes, checkSum, ...) mirrored verbatim
-# as attributes; `id` is a valid short name here.
-good-names = ["i", "j", "k", "ex", "Run", "_", "id", "d", "f"]
 no-docstring-rgx = "^_"
 
 [tool.pylint.design]
@@ -93,13 +92,16 @@ allow-wildcard-with-all = false
 logging-format-style = "old"
 
 [tool.pylint."messages control"]
-# camelCase attrs mirror the DSpace API (invalid-name); f-strings in log calls
-# are mandated by the project (logging-fstring-interpolation); broad catches
-# guard optional/fallback paths (broad-exception-caught). import-error: pysolr
-# is an optional extra not present in every lint env. too-many-lines /
-# too-many-public-methods: DSpaceClient is a wide REST facade (one method per
-# endpoint); splitting into endpoint mixins is a tracked follow-up, not a
-# blocker. fixme: upstream TODO markers are informational, not defects.
+# camelCase attrs and method names mirror the DSpace API verbatim
+# (invalid-name), so it stays off project-wide and no good-names allowlist is
+# needed; f-strings in log calls are mandated by the project
+# (logging-fstring-interpolation). import-error: pysolr is an optional extra
+# not present in every lint env. too-many-lines / too-many-public-methods:
+# DSpaceClient is a wide REST facade (one method per endpoint); splitting into
+# endpoint mixins is a tracked follow-up, not a blocker. fixme: upstream TODO
+# markers are informational, not defects. Broad `except Exception` catches are
+# NOT disabled globally - the few deliberate fallback paths carry an inline
+# `# pylint: disable=broad-exception-caught`.
 disable = [
     "missing-function-docstring",
     "missing-class-docstring",
@@ -107,7 +109,6 @@ disable = [
     "invalid-name",
     "import-error",
     "import-outside-toplevel",
-    "broad-exception-caught",
     "logging-fstring-interpolation",
     "line-too-long",
     "too-few-public-methods",
