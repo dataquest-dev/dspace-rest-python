@@ -10,6 +10,7 @@ tooling would break - these tests pin the shape.
 import unittest
 
 import _helpers  # noqa: F401  (bootstraps sys.path for direct runs)
+from dspace_rest_client import models as models_module
 from dspace_rest_client.models import (
     DSpaceObject, HALResource, Item, Community, Collection, Bundle, Bitstream,
     Group, User, InProgressSubmission, ResourcePolicy)
@@ -89,6 +90,39 @@ class TestMutableDefaults(unittest.TestCase):
         first.sections["license"] = {"accepted": True}
 
         self.assertNotIn("license", second.sections)
+
+    def test_no_model_declares_attribute_defaults_at_class_level(self):
+        """The structural guarantee behind the three tests above.
+
+        A class-level default is shared by every instance, so a mutable one
+        (links, metadata, checkSum, sections) lets one object's mutation leak
+        into all the others. Every attribute is assigned in __init__ instead;
+        this test fails if anyone reintroduces a class-body default.
+        """
+        for cls in vars(models_module).values():
+            if not isinstance(cls, type) or cls.__module__ != models_module.__name__:
+                continue
+            declared = sorted(
+                name for name, value in vars(cls).items()
+                if not name.startswith("__")
+                and not isinstance(value, (property, classmethod, staticmethod))
+                and not callable(value))
+            with self.subTest(model=cls.__name__):
+                self.assertEqual(declared, [], (
+                    f"{cls.__name__} declares {declared} at class level; "
+                    "move the default into __init__ as self.<attr> = ..."))
+
+    def test_every_model_instance_defines_the_attributes_its_dict_reports(self):
+        # nothing may fall back to a class attribute: what __init__ assigns is
+        # the whole public surface of the instance.
+        for cls, args in ((HALResource, ()), (DSpaceObject, ()), (Item, ()),
+                          (Community, ()), (Collection, ()), (Bundle, ()),
+                          (Bitstream, ()), (Group, ()), (User, ()),
+                          (InProgressSubmission, ({},))):
+            with self.subTest(model=cls.__name__):
+                instance = cls(*args)
+                for name in ("type", "links", "embedded"):
+                    self.assertIn(name, vars(instance))
 
 
 class TestCommunityCollection(unittest.TestCase):
