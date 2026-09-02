@@ -192,6 +192,26 @@ class TestCreateBitstream(unittest.TestCase):
                 bundle=bundle, name="a.pdf", path=self.path,
                 mime="application/pdf"))
 
+    def test_csrf_retry_preserves_custom_timeout(self):
+        # the retry recursion used to drop a caller-supplied timeout override,
+        # silently falling back to the client default on the retried request
+        c = make_client()
+        bundle = Bundle(bundle_json("bnd"))
+        with requests_mock.Mocker() as m:
+            m.post(f"{API}/core/bundles/bnd/bitstreams", [
+                {"status_code": 403, "json": {"message": "CSRF token invalid"}},
+                {"status_code": 201, "json": bitstream_json("bsnew", "a.pdf", size=20)},
+            ])
+            bs = c.create_bitstream(
+                bundle=bundle, name="a.pdf", path=self.path,
+                mime="application/pdf", timeout=900)
+            self.assertIsInstance(bs, Bitstream)
+            # initial attempt + exactly one CSRF retry, both bounded by the
+            # caller's override rather than the client's flat default
+            self.assertEqual(len(m.request_history), 2)
+            self.assertEqual(m.request_history[0].timeout, 900)
+            self.assertEqual(m.request_history[1].timeout, 900)
+
 
 class TestCreateClarinAllowances(unittest.TestCase):
 

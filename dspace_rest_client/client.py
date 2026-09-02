@@ -103,6 +103,9 @@ class DSpaceClient:
         :param api_endpoint:    base path to DSpace REST API, eg. http://localhost:8080/server/api
         :param username:        username with appropriate privileges to perform operations on REST API
         :param password:        password for the above username
+        :param timeout:         default per-request timeout in seconds, used by every request unless a
+                                method call overrides it (eg. create_bitstream's own timeout argument).
+                                None (default) falls back to DEFAULT_TIMEOUT (60s).
         """
         self.session = requests.Session()
         self.API_ENDPOINT = api_endpoint
@@ -830,7 +833,7 @@ class DSpaceClient:
                 bitstreams.append(Bitstream(bitstream_resource))
         return bitstreams
 
-    def create_bitstream(self, bundle=None, name=None, path=None, mime=None, metadata=None, retry=False):
+    def create_bitstream(self, bundle=None, name=None, path=None, mime=None, metadata=None, retry=False, timeout=None):
         """
         Upload a file and create a bitstream for a specified parent bundle, from the uploaded file and
         the supplied metadata.
@@ -845,6 +848,10 @@ class DSpaceClient:
         @param metadata:    Full metadata JSON
         @param retry:       A 'retried' indicator. If the first attempt fails due to an expired or missing auth
                             token, the request will retry once, after the token is refreshed. (default: False)
+        @param timeout:     Per-call timeout in seconds for this upload, overriding self.timeout - useful for
+                            large files that need longer than the client's default. None (default) falls back
+                            to self.timeout. Preserved across the CSRF-retry recursion, so it still applies
+                            to the retried request.
         @return:            constructed Bitstream object from the API response, or None if the operation failed.
         """
         # TODO: It is probably wise to allow the bundle UUID to be simply passed as an alternative to having the full
@@ -865,7 +872,8 @@ class DSpaceClient:
             h.update({'Content-Encoding': 'gzip', 'User-Agent': self.USER_AGENT})
             req = Request('POST', url, data=payload, headers=h, files=files)
             prepared_req = self.session.prepare_request(req)
-            r = self.session.send(prepared_req, proxies=self.proxies, timeout=self.timeout)
+            r = self.session.send(prepared_req, proxies=self.proxies,
+                                  timeout=timeout if timeout is not None else self.timeout)
         if 'DSPACE-XSRF-TOKEN' in r.headers:
             t = r.headers['DSPACE-XSRF-TOKEN']
             _logger.debug('Updating token to ' + t)
@@ -873,11 +881,12 @@ class DSpaceClient:
             self.session.cookies.update({'X-XSRF-Token': t})
         if not retry and r.status_code in (401, 403):
             r_json = parse_json(r)
-            if 'message' in r_json and 'CSRF token' in r_json['message']:
+            if 'message' in (r_json or {}) and 'CSRF token' in r_json['message']:
                 _logger.debug("Retrying request with updated CSRF token")
             else:
                 self.authenticate()
-            return self.create_bitstream(bundle, name, path, mime, metadata, True)
+            return self.create_bitstream(bundle=bundle, name=name, path=path, mime=mime,
+                                         metadata=metadata, retry=True, timeout=timeout)
 
         if r.status_code == 201 or r.status_code == 200:
             # Success
