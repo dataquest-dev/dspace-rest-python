@@ -21,7 +21,7 @@ Date: Unreleased
 7. Model attribute defaults moved from the class body into `__init__` as plain
    instance attributes, so no instance can share (or mutate) a class-level
    `links`, `embedded`, `metadata`, `checkSum` or `sections` dict. `Group()` /
-   `User()` accept a `None` API resource, and `Item.from_dso` /
+   `User()` and `EntityType()` accept a `None` API resource, and `Item.from_dso` /
    `DSpaceObject(dso=...)` deep-copy metadata instead of aliasing it. Side effect:
    `id` on a `DSpaceObject` (and its subclasses) and `label` on an `EntityType`
    now default to `None` rather than raising `AttributeError` when the API
