@@ -885,7 +885,8 @@ class DSpaceClient:
                 _logger.debug("Retrying request with updated CSRF token")
             else:
                 self.authenticate()
-            return self.create_bitstream(bundle, name, path, mime, metadata, True, timeout)
+            return self.create_bitstream(bundle=bundle, name=name, path=path, mime=mime,
+                                         metadata=metadata, retry=True, timeout=timeout)
 
         if r.status_code == 201 or r.status_code == 200:
             # Success
