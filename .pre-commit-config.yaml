@@ -28,7 +28,7 @@ repos:
         args: ['-rn', '-sn', '--rcfile=pyproject.toml']
         additional_dependencies: [requests, pysolr]
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.17.1
+    rev: v2.3.1
     hooks:
       - id: mypy
         files: ^dspace_rest_client/
