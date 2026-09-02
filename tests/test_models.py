@@ -96,8 +96,14 @@ class TestMutableDefaults(unittest.TestCase):
 
         A class-level default is shared by every instance, so a mutable one
         (links, metadata, checkSum, sections) lets one object's mutation leak
-        into all the others. Every attribute is assigned in __init__ instead;
-        this test fails if anyone reintroduces a class-body default.
+        into all the others. Class bodies carry only bare annotations - which
+        declare a type without creating an attribute - while the values are
+        assigned per instance in __init__, mostly via _init_fields(). This test
+        fails if anyone reintroduces a class-body default.
+
+        Note there is deliberately no class-level field-spec constant to exempt
+        here: the spec lives in the _init_fields() keyword arguments, so this
+        check can stay absolute rather than carrying an allowlist.
         """
         for cls in vars(models_module).values():
             if not isinstance(cls, type) or cls.__module__ != models_module.__name__:
@@ -111,6 +117,28 @@ class TestMutableDefaults(unittest.TestCase):
                 self.assertEqual(declared, [], (
                     f"{cls.__name__} declares {declared} at class level; "
                     "move the default into __init__ as self.<attr> = ..."))
+
+    def test_declared_defaults_are_copied_per_instance(self):
+        # _fresh() is what stops a default declared once in an _init_fields()
+        # call from being handed out as the same object to every instance.
+        first, second = Bitstream(), Bitstream()
+        self.assertIsNot(first.checkSum, second.checkSum)
+
+        first_sub, second_sub = InProgressSubmission(), InProgressSubmission()
+        self.assertIsNot(first_sub.sections, second_sub.sections)
+
+    def test_api_values_keep_their_documented_copy_depth(self):
+        # checkSum/sections were always shallow-copied and metadata deep-copied;
+        # _init_fields carries that per-field choice rather than flattening it.
+        checksum = {"checkSumAlgorithm": "MD5", "value": "abc"}
+        bitstream = Bitstream({"checkSum": checksum})
+        self.assertIsNot(bitstream.checkSum, checksum)
+        self.assertEqual(bitstream.checkSum, checksum)
+
+        metadata = {"dc.title": [{"value": "T"}]}
+        item = Item({"metadata": metadata})
+        item.metadata["dc.title"][0]["value"] = "changed"
+        self.assertEqual(metadata["dc.title"][0]["value"], "T")
 
     def test_every_model_instance_defines_the_attributes_its_dict_reports(self):
         # nothing may fall back to a class attribute: what __init__ assigns is
