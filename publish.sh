@@ -1,3 +1,7 @@
 #!/bin/bash
-python setup.py bdist_wheel
-twine upload dist/dspace_rest_client-0.1.10-py3-none-any.whl
+set -euo pipefail
+
+rm -rf build dist
+python -m build
+python -m twine check dist/*
+python -m twine upload dist/*

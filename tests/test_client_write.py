@@ -84,6 +84,41 @@ class TestApiDelete(unittest.TestCase):
             self.assertEqual(c.api_delete(url, params=None).status_code, 404)
 
 
+class TestNonJsonForbiddenResponses(unittest.TestCase):
+
+    def test_low_level_writes_return_non_json_403_without_crashing(self):
+        c = make_client()
+        url = f"{API}/forbidden"
+        cases = (
+            ("post", "POST", lambda: c.api_post(
+                url, params=None, json={}, retry=True)),
+            ("post_uri", "POST", lambda: c.api_post_uri(
+                url, params=None, uri_list="http://example.test/resource", retry=True)),
+            ("put", "PUT", lambda: c.api_put(
+                url, params=None, json={}, retry=True)),
+            ("put_uri", "PUT", lambda: c.api_put_uri(
+                url, params=None, uri_list="http://example.test/resource", retry=True)),
+            ("delete", "DELETE", lambda: c.api_delete(
+                url, params=None, retry=True)),
+            ("patch", "PATCH", lambda: c.api_patch(
+                url, c.PatchOperation.REMOVE, "/metadata/dc.title", None,
+                retry=True)),
+        )
+        for name, method, call in cases:
+            with self.subTest(name=name), requests_mock.Mocker() as m:
+                m.register_uri(method, url, status_code=403, text="Forbidden")
+                self.assertEqual(call().status_code, 403)
+                self.assertEqual(m.call_count, 1)
+
+
+class TestMetadataPatches(unittest.TestCase):
+
+    def test_invalid_add_and_remove_return_none(self):
+        c = make_client()
+        self.assertIsNone(c.add_metadata(None, "dc.title", "Title"))
+        self.assertIsNone(c.remove_metadata(None, "dc.title"))
+
+
 class TestCreateBundle(unittest.TestCase):
 
     def test_posts_to_item_bundles_and_returns_bundle(self):
@@ -191,6 +226,44 @@ class TestCreateBitstream(unittest.TestCase):
             self.assertIsNone(c.create_bitstream(
                 bundle=bundle, name="a.pdf", path=self.path,
                 mime="application/pdf"))
+
+    def test_non_json_403_reauthenticates_and_retries(self):
+        c = make_client()
+        bundle = Bundle(bundle_json("bnd"))
+        upload_url = f"{API}/core/bundles/bnd/bitstreams"
+        with requests_mock.Mocker() as m:
+            m.post(upload_url, [
+                {"status_code": 403, "text": "Forbidden"},
+                {"status_code": 201,
+                 "json": bitstream_json("retried", "a.pdf", size=20)},
+            ])
+            m.post(f"{API}/authn/login", status_code=200,
+                   headers={"Authorization": "Bearer refreshed"})
+            m.get(f"{API}/authn/status", status_code=200,
+                  json={"authenticated": True})
+
+            bitstream = c.create_bitstream(
+                bundle=bundle, name="a.pdf", path=self.path,
+                mime="application/pdf")
+
+            self.assertEqual(bitstream.uuid, "retried")
+            upload_calls = [request for request in m.request_history
+                            if request.url.split("?")[0] == upload_url]
+            self.assertEqual(len(upload_calls), 2)
+
+    def test_xsrf_token_from_upload_response_updates_session(self):
+        # create_bitstream must refresh the CSRF token through the one shared
+        # update_token() path, exactly like every other write method.
+        c = make_client()
+        bundle = Bundle(bundle_json("bnd"))
+        with requests_mock.Mocker() as m:
+            m.post(f"{API}/core/bundles/bnd/bitstreams", status_code=201,
+                   headers={"DSPACE-XSRF-TOKEN": "fresh-token"},
+                   json=bitstream_json("bsnew", "a.pdf", size=20))
+            c.create_bitstream(bundle=bundle, name="a.pdf", path=self.path,
+                               mime="application/pdf")
+            self.assertEqual(c.session.headers["X-XSRF-Token"], "fresh-token")
+            self.assertEqual(c.session.cookies["X-XSRF-Token"], "fresh-token")
 
 
 class TestCreateClarinAllowances(unittest.TestCase):

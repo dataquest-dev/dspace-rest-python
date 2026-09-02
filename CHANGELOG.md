@@ -1,5 +1,35 @@
 # Changelog
 
+### 0.2.0
+
+Date: Unreleased
+
+**Changes**
+
+1. Migrated packaging and release builds from `setup.py` to `pyproject.toml`.
+2. Raised the minimum supported Python version to 3.10 and added type checking.
+3. Hardened UUID validation across every UUID-taking method (`get_dso`, `get_item`,
+   `get_resourcepolicy`, `create_resourcepolicy`, `get_owningCollection`): a `None`
+   or non-string argument is now logged and returns `None` instead of raising
+   `TypeError`.
+4. A non-JSON `401`/`403` body no longer crashes the CSRF-refresh/retry path of
+   `api_post`, `api_post_uri`, `api_put`, `api_put_uri`, `api_delete`, `api_patch`
+   and `create_bitstream`.
+5. `get_communities`, `get_collections` and `get_bundle_by_name` return `None` on a
+   failed or non-JSON response instead of raising `TypeError`.
+6. `add_metadata` / `remove_metadata` return `None` (not the client) on invalid input.
+7. Model attribute defaults moved from the class body into `__init__` as plain
+   instance attributes, so no instance can share (or mutate) a class-level
+   `links`, `embedded`, `metadata`, `checkSum` or `sections` dict. `Group()` /
+   `User()` and `EntityType()` accept a `None` API resource, and `Item.from_dso` /
+   `DSpaceObject(dso=...)` deep-copy metadata instead of aliasing it. Side effect:
+   `id` on a `DSpaceObject` (and its subclasses) and `label` on an `EntityType`
+   now default to `None` rather than raising `AttributeError` when the API
+   resource omits them.
+8. `models.__all__` exports the full model surface re-exported by the package.
+9. Moved direct Solr support to the documented `solr` optional dependency group;
+   `solr_query()` raises an actionable `RuntimeError` when the extra is missing.
+
 ### 0.1.10
 
 Date: 2024-04-04

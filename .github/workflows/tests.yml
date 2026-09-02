@@ -43,27 +43,23 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install pre-commit
+        run: pip install pre-commit==4.2.0
 
       - name: Ruff
-        run: uvx ruff@0.12.7 check dspace_rest_client tests
+        run: pre-commit run ruff --all-files
 
       - name: Pylint
-        run: >-
-          uvx --with requests --with pysolr pylint@3.3.7
-          --rcfile=pyproject.toml dspace_rest_client
+        run: pre-commit run pylint --all-files
 
-  typecheck:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
-
+      # Non-blocking: strict typing is being introduced incrementally, so a
+      # mypy finding is reported in the log but does not fail the job. The
+      # version is pinned by the mirrors-mypy rev in .pre-commit-config.yaml.
       - name: Mypy
-        # Non-blocking: strict typing is being introduced incrementally, so a
-        # mypy failure is reported but does not fail the (green) job.
         continue-on-error: true
-        run: uvx --with requests --with pysolr mypy dspace_rest_client
+        run: pre-commit run mypy --all-files

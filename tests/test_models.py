@@ -10,8 +10,10 @@ tooling would break - these tests pin the shape.
 import unittest
 
 import _helpers  # noqa: F401  (bootstraps sys.path for direct runs)
+from dspace_rest_client import models as models_module
 from dspace_rest_client.models import (
-    Item, Community, Collection, Bundle, Bitstream, ResourcePolicy)
+    DSpaceObject, HALResource, Item, Community, Collection, Bundle, Bitstream,
+    Group, User, InProgressSubmission, ResourcePolicy)
 
 
 class TestItem(unittest.TestCase):
@@ -43,6 +45,112 @@ class TestItem(unittest.TestCase):
         self.assertEqual(
             (d["inArchive"], d["discoverable"], d["withdrawn"]),
             (True, True, False))
+
+    def test_from_dso_does_not_alias_metadata(self):
+        source = DSpaceObject({
+            "metadata": {"dc.title": [{"value": "Original"}]}})
+
+        copied = Item.from_dso(source)
+        copied.metadata["dc.title"][0]["value"] = "Changed"
+
+        self.assertEqual(source.metadata["dc.title"][0]["value"], "Original")
+
+    def test_dso_constructor_does_not_alias_metadata(self):
+        source = DSpaceObject({
+            "metadata": {"dc.title": [{"value": "Original"}]}})
+
+        copied = Item(dso=source)
+        copied.metadata["dc.title"][0]["value"] = "Changed"
+
+        self.assertEqual(source.metadata["dc.title"][0]["value"], "Original")
+
+
+class TestMutableDefaults(unittest.TestCase):
+
+    def test_hal_links_are_isolated_between_instances(self):
+        first = HALResource()
+        second = HALResource()
+
+        first.links["next"] = {"href": "http://example.test/next"}
+
+        self.assertNotIn("next", second.links)
+
+    def test_bitstream_checksums_are_isolated_between_instances(self):
+        first = Bitstream()
+        second = Bitstream()
+
+        first.checkSum["value"] = "changed"
+
+        self.assertIsNone(second.checkSum["value"])
+
+    def test_submission_sections_are_isolated_between_instances(self):
+        first = InProgressSubmission({})
+        second = InProgressSubmission({})
+
+        first.sections["license"] = {"accepted": True}
+
+        self.assertNotIn("license", second.sections)
+
+    def test_no_model_declares_attribute_defaults_at_class_level(self):
+        """The structural guarantee behind the three tests above.
+
+        A class-level default is shared by every instance, so a mutable one
+        (links, metadata, checkSum, sections) lets one object's mutation leak
+        into all the others. Class bodies carry only bare annotations - which
+        declare a type without creating an attribute - while the values are
+        assigned per instance in __init__, mostly via _init_fields(). This test
+        fails if anyone reintroduces a class-body default.
+
+        Note there is deliberately no class-level field-spec constant to exempt
+        here: the spec lives in the _init_fields() keyword arguments, so this
+        check can stay absolute rather than carrying an allowlist.
+        """
+        for cls in vars(models_module).values():
+            if not isinstance(cls, type) or cls.__module__ != models_module.__name__:
+                continue
+            declared = sorted(
+                name for name, value in vars(cls).items()
+                if not name.startswith("__")
+                and not isinstance(value, (property, classmethod, staticmethod))
+                and not callable(value))
+            with self.subTest(model=cls.__name__):
+                self.assertEqual(declared, [], (
+                    f"{cls.__name__} declares {declared} at class level; "
+                    "move the default into __init__ as self.<attr> = ..."))
+
+    def test_declared_defaults_are_copied_per_instance(self):
+        # _fresh() is what stops a default declared once in an _init_fields()
+        # call from being handed out as the same object to every instance.
+        first, second = Bitstream(), Bitstream()
+        self.assertIsNot(first.checkSum, second.checkSum)
+
+        first_sub, second_sub = InProgressSubmission(), InProgressSubmission()
+        self.assertIsNot(first_sub.sections, second_sub.sections)
+
+    def test_api_values_keep_their_documented_copy_depth(self):
+        # checkSum/sections were always shallow-copied and metadata deep-copied;
+        # _init_fields carries that per-field choice rather than flattening it.
+        checksum = {"checkSumAlgorithm": "MD5", "value": "abc"}
+        bitstream = Bitstream({"checkSum": checksum})
+        self.assertIsNot(bitstream.checkSum, checksum)
+        self.assertEqual(bitstream.checkSum, checksum)
+
+        metadata = {"dc.title": [{"value": "T"}]}
+        item = Item({"metadata": metadata})
+        item.metadata["dc.title"][0]["value"] = "changed"
+        self.assertEqual(metadata["dc.title"][0]["value"], "T")
+
+    def test_every_model_instance_defines_the_attributes_its_dict_reports(self):
+        # nothing may fall back to a class attribute: what __init__ assigns is
+        # the whole public surface of the instance.
+        for cls, args in ((HALResource, ()), (DSpaceObject, ()), (Item, ()),
+                          (Community, ()), (Collection, ()), (Bundle, ()),
+                          (Bitstream, ()), (Group, ()), (User, ()),
+                          (InProgressSubmission, ({},))):
+            with self.subTest(model=cls.__name__):
+                instance = cls(*args)
+                for name in ("type", "links", "embedded"):
+                    self.assertIn(name, vars(instance))
 
 
 class TestCommunityCollection(unittest.TestCase):
@@ -108,6 +216,10 @@ class TestBundleBitstream(unittest.TestCase):
         b = Bitstream(None)
         self.assertEqual(b.type, "bitstream")
         self.assertIsNone(b.uuid)
+
+    def test_group_and_user_from_none_do_not_crash(self):
+        self.assertEqual(Group(None).type, "group")
+        self.assertEqual(User(None).type, "user")
 
 
 class TestResourcePolicy(unittest.TestCase):

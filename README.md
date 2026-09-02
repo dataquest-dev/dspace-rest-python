@@ -1,5 +1,5 @@
 # DSpace Python REST Client Library
-This client library allows Python 3 scripts (Python 2 probably compatible but not officially supported) to interact with
+This client library allows Python 3.10+ scripts to interact with
 DSpace 7+ repositories, using the DSpace REST API.
 
 This library is a work in progress and so far offers basic create, update, retrieve functionality for
@@ -15,8 +15,8 @@ PyPI homepage: https://pypi.org/project/dspace-rest-client/
 * Working DSpace 7 repository with an accessible REST API
 
 ## Installation
-To install with pip: 
-`pip install dspace_rest_client`
+To install with pip:
+`pip install dspace-rest-client`
 
 (or `pip3` or `python -m pip` as appropriate to your environment)
 
@@ -26,6 +26,17 @@ git clone https://github.com/the-library-code/dspace-rest-python.git
 cd dspace-rest-python
 pip install .
 ```
+
+### Solr support
+
+Direct Solr queries require the optional `solr` dependency group:
+
+```commandline
+pip install "dspace-rest-client[solr]"
+```
+
+Without that extra, REST API operations remain available, but `solr_query()`
+raises an error explaining how to install Solr support.
 
 
 ## Usage
