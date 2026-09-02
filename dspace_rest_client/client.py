@@ -830,7 +830,7 @@ class DSpaceClient:
                 bitstreams.append(Bitstream(bitstream_resource))
         return bitstreams
 
-    def create_bitstream(self, bundle=None, name=None, path=None, mime=None, metadata=None, retry=False):
+    def create_bitstream(self, bundle=None, name=None, path=None, mime=None, metadata=None, retry=False, timeout=None):
         """
         Upload a file and create a bitstream for a specified parent bundle, from the uploaded file and
         the supplied metadata.
@@ -865,7 +865,8 @@ class DSpaceClient:
             h.update({'Content-Encoding': 'gzip', 'User-Agent': self.USER_AGENT})
             req = Request('POST', url, data=payload, headers=h, files=files)
             prepared_req = self.session.prepare_request(req)
-            r = self.session.send(prepared_req, proxies=self.proxies, timeout=self.timeout)
+            r = self.session.send(prepared_req, proxies=self.proxies,
+                                  timeout=timeout if timeout is not None else self.timeout)
         if 'DSPACE-XSRF-TOKEN' in r.headers:
             t = r.headers['DSPACE-XSRF-TOKEN']
             _logger.debug('Updating token to ' + t)
@@ -877,7 +878,7 @@ class DSpaceClient:
                 _logger.debug("Retrying request with updated CSRF token")
             else:
                 self.authenticate()
-            return self.create_bitstream(bundle, name, path, mime, metadata, True)
+            return self.create_bitstream(bundle, name, path, mime, metadata, True, timeout)
 
         if r.status_code == 201 or r.status_code == 200:
             # Success
