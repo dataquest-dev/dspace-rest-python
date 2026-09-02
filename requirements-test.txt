@@ -5,3 +5,5 @@
 pytest>=7.0
 requests-mock>=1.11
 requests
+# coverage floor is enforced in CI (tests.yml :: test job, --cov-fail-under)
+pytest-cov>=4.0
