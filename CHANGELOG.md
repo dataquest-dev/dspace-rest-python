@@ -1,5 +1,16 @@
 # Changelog
 
+### 0.2.0
+
+Date: Unreleased
+
+**Changes**
+
+1. Migrated packaging and release builds from `setup.py` to `pyproject.toml`.
+2. Raised the minimum supported Python version to 3.10 and added type checking.
+3. Hardened UUID validation, non-JSON error handling, model construction, and model copying.
+4. Moved direct Solr support to the documented `solr` optional dependency group.
+
 ### 0.1.10
 
 Date: 2024-04-04

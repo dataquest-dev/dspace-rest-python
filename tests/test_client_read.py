@@ -93,7 +93,28 @@ class TestGetItem(unittest.TestCase):
     def test_invalid_uuid_returns_none_without_request(self):
         c = make_client()
         with requests_mock.Mocker() as m:
-            self.assertIsNone(c.get_item("not-a-uuid"))
+            for value in ("not-a-uuid", None):
+                with self.subTest(value=value):
+                    self.assertIsNone(c.get_item(value))
+            self.assertEqual(m.call_count, 0)
+
+
+class TestUuidValidation(unittest.TestCase):
+
+    def test_uuid_endpoints_reject_none_without_request(self):
+        c = make_client()
+        cases = (
+            ("get_dso", lambda: c.get_dso(f"{API}/core/items", None)),
+            ("get_resourcepolicy", lambda: c.get_resourcepolicy(None)),
+            ("create_resourcepolicy_resource", lambda: c.create_resourcepolicy(
+                resource_uuid=None, group_uuid=BITSTREAM_UUID)),
+            ("create_resourcepolicy_group", lambda: c.create_resourcepolicy(
+                resource_uuid=BITSTREAM_UUID, group_uuid=None)),
+        )
+        with requests_mock.Mocker() as m:
+            for name, call in cases:
+                with self.subTest(name=name):
+                    self.assertIsNone(call())
             self.assertEqual(m.call_count, 0)
 
 
