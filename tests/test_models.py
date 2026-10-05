@@ -147,21 +147,26 @@ class TestResourcePolicy(unittest.TestCase):
         self.assertEqual(rp2.groupUUID, "anon")
         self.assertEqual(rp2.action, "READ")
 
-    def test_eperson_policy_as_dict_roundtrip_keeps_eperson_uuid(self):
+    def test_eperson_policy_has_no_group_and_no_warning(self):
         # a policy granted to a person, not a group: "group" is null
-        rp = ResourcePolicy({"id": 3, "action": "READ",
-                             "_embedded": {"group": None,
-                                           "eperson": {"uuid": "ep-uuid",
-                                                       "email": "person@example.org"}}})
+        with self.assertNoLogs("dspace.models", level="WARNING"):
+            rp = ResourcePolicy({"id": 3, "action": "READ",
+                                 "_embedded": {"group": None,
+                                               "eperson": {"uuid": "ep-uuid"}}})
         self.assertIsNone(rp.groupName)
         self.assertIsNone(rp.groupUUID)
-        self.assertEqual(rp.epersonUUID, "ep-uuid")
-        d = rp.as_dict()
-        self.assertEqual(d["epersonUUID"], "ep-uuid")
-        self.assertNotIn("person@example.org", repr(d))
-        rp2 = ResourcePolicy(d)
-        self.assertEqual(rp2.epersonUUID, "ep-uuid")
+        rp2 = ResourcePolicy(rp.as_dict())
         self.assertIsNone(rp2.groupUUID)
+        self.assertEqual(rp2.action, "READ")
+
+    def test_policy_without_group_and_eperson_warns_with_id(self):
+        with self.assertLogs("dspace.models", level="WARNING") as logs:
+            rp = ResourcePolicy({"id": 4, "action": "READ",
+                                 "_embedded": {"group": None, "eperson": None}})
+        self.assertIsNone(rp.groupUUID)
+        self.assertEqual(len(logs.records), 1)
+        self.assertEqual(logs.records[0].levelname, "WARNING")
+        self.assertIn("[4]", logs.records[0].getMessage())
 
 
 if __name__ == "__main__":

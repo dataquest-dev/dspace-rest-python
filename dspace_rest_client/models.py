@@ -10,7 +10,12 @@ when creating, updating, retrieving and deleting DSpace Objects.
 @author Kim Shepherd <kim@shepherd.nz>
 """
 import json
+import logging
 
+_logger = logging.getLogger("dspace.models")
+# library: records are dropped unless the application configures logging
+if not any(isinstance(h, logging.NullHandler) for h in _logger.handlers):
+    _logger.addHandler(logging.NullHandler())
 
 __all__ = ['DSpaceObject', 'HALResource', 'ExternalDataObject', 'SimpleDSpaceObject', 'Community',
            'Collection', 'Item', 'Bundle', 'Bitstream', 'User', 'Group', 'ResourcePolicy']
@@ -597,17 +602,17 @@ class ResourcePolicy(AddressableHALResource):
         # Check for direct groupName/groupUUID (cached format from as_dict())
         self.groupName = api_resource.get('groupName')
         self.groupUUID = api_resource.get('groupUUID')
-        self.epersonUUID = api_resource.get('epersonUUID')
         # If not found, try extracting from _embedded structure (live API format).
         # A policy is granted to a group OR to an eperson; the other one is null.
-        embedded = api_resource.get('_embedded') or {}
-        group = embedded.get('group')
-        if self.groupName is None and group:
-            self.groupName = group.get('name')
-            self.groupUUID = group.get('uuid')
-        eperson = embedded.get('eperson')
-        if self.epersonUUID is None and eperson:
-            self.epersonUUID = eperson.get('uuid')
+        if self.groupName is None and '_embedded' in api_resource:
+            embedded = api_resource['_embedded'] or {}
+            group = embedded.get('group')
+            if group:
+                self.groupName = group.get('name')
+                self.groupUUID = group.get('uuid')
+            elif not embedded.get('eperson'):
+                _logger.warning(
+                    f'Resource policy [{self.id}] has neither a group nor an eperson')
 
     def as_dict(self):
         return {
@@ -621,7 +626,6 @@ class ResourcePolicy(AddressableHALResource):
             'policyType': self.policyType,
             'groupName': self.groupName,
             'groupUUID': self.groupUUID,
-            'epersonUUID': self.epersonUUID,
         }
 
     def __repr__(self):
