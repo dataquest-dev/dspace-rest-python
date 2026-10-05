@@ -526,11 +526,13 @@ class DSpaceClient:
             # record the failing response so callers can tell a 404 (the
             # resource is gone) from a transient 5xx before we drop the body
             self._last_err = r
-            path = urlparse(r.url).path
+            # keep the query: on search endpoints it holds the only resource id
+            u = urlparse(r.url)
+            path = f'{u.path}?{u.query}' if u.query else u.path
             if r.status_code == 401:
                 _logger.warning(
-                    f'DSpace returned 401 for [{path}] - session token probably '
-                    'expired, the caller re-authenticates')
+                    f'DSpace returned 401 for [{path}] - authentication required '
+                    '(session expired or not logged in)')
             elif r.status_code == 404:
                 _logger.warning(
                     f'DSpace returned 404 for [{path}] - resource not found (deleted?)')
