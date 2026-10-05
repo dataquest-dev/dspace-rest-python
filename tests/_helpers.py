@@ -7,7 +7,9 @@ objects. That way a change to the library that breaks URL construction or
 response parsing - the two things downstream code (this repo) depends on -
 fails a test instead of silently shipping.
 """
+import contextlib
 import json
+import logging
 import os
 import re
 import sys
@@ -32,6 +34,14 @@ ITEM_UUID = "11111111-1111-1111-1111-111111111111"
 COLLECTION_UUID = "22222222-2222-2222-2222-222222222222"
 BITSTREAM_UUID = "9f54ef33-c454-4d8e-a5fe-79d8291045ba"
 ANON_GROUP_UUID = "6ecfd145-3b7d-429e-ab31-ef6905a05763"
+
+_FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
+
+
+def load_fixture(name: str) -> dict:
+    """A recorded (anonymised) DSpace response from ``tests/fixtures``."""
+    with open(os.path.join(_FIXTURES, name), encoding="utf-8") as f:
+        return json.load(f)
 
 
 def make_client(api_endpoint: str = API) -> DSpaceClient:
@@ -112,3 +122,19 @@ def policy_json(pid: int = 1, action: str = "READ", group_name: str = "Anonymous
     if start_date is not None:
         d["startDate"] = start_date
     return d
+
+
+@contextlib.contextmanager
+def no_warnings_logged(test, logger_name: str):
+    """``test.assertNoLogs(logger_name, "WARNING")`` - which needs Python 3.10,
+    while ``setup.py`` supports 3.8."""
+    records = []
+    handler = logging.Handler(level=logging.WARNING)
+    handler.emit = records.append
+    logger = logging.getLogger(logger_name)
+    logger.addHandler(handler)
+    try:
+        yield
+    finally:
+        logger.removeHandler(handler)
+    test.assertEqual([r.getMessage() for r in records], [])

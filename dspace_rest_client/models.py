@@ -10,7 +10,12 @@ when creating, updating, retrieving and deleting DSpace Objects.
 @author Kim Shepherd <kim@shepherd.nz>
 """
 import json
+import logging
 
+_logger = logging.getLogger("dspace.models")
+# library: records are dropped unless the application configures logging
+if not any(isinstance(h, logging.NullHandler) for h in _logger.handlers):
+    _logger.addHandler(logging.NullHandler())
 
 __all__ = ['DSpaceObject', 'HALResource', 'ExternalDataObject', 'SimpleDSpaceObject', 'Community',
            'Collection', 'Item', 'Bundle', 'Bitstream', 'User', 'Group', 'ResourcePolicy']
@@ -597,11 +602,17 @@ class ResourcePolicy(AddressableHALResource):
         # Check for direct groupName/groupUUID (cached format from as_dict())
         self.groupName = api_resource.get('groupName')
         self.groupUUID = api_resource.get('groupUUID')
-        # If not found, try extracting from _embedded structure (live API format)
+        # If not found, try extracting from _embedded structure (live API format).
+        # A policy is granted to a group OR to an eperson; the other one is null.
         if self.groupName is None and '_embedded' in api_resource:
-            if 'group' in api_resource['_embedded']:
-                self.groupName = api_resource['_embedded']['group'].get('name')
-                self.groupUUID = api_resource['_embedded']['group'].get('uuid')
+            embedded = api_resource['_embedded'] or {}
+            group = embedded.get('group')
+            if group:
+                self.groupName = group.get('name')
+                self.groupUUID = group.get('uuid')
+            elif not embedded.get('eperson'):
+                _logger.warning(
+                    f'Resource policy [{self.id}] has neither a group nor an eperson')
 
     def as_dict(self):
         return {

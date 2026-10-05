@@ -10,6 +10,7 @@ tooling would break - these tests pin the shape.
 import unittest
 
 import _helpers  # noqa: F401  (bootstraps sys.path for direct runs)
+from _helpers import no_warnings_logged
 from dspace_rest_client.models import (
     Item, Community, Collection, Bundle, Bitstream, ResourcePolicy)
 
@@ -146,6 +147,27 @@ class TestResourcePolicy(unittest.TestCase):
         rp2 = ResourcePolicy(d)
         self.assertEqual(rp2.groupUUID, "anon")
         self.assertEqual(rp2.action, "READ")
+
+    def test_eperson_policy_has_no_group_and_no_warning(self):
+        # a policy granted to a person, not a group: "group" is null
+        with no_warnings_logged(self, "dspace.models"):
+            rp = ResourcePolicy({"id": 3, "action": "READ",
+                                 "_embedded": {"group": None,
+                                               "eperson": {"uuid": "ep-uuid"}}})
+        self.assertIsNone(rp.groupName)
+        self.assertIsNone(rp.groupUUID)
+        rp2 = ResourcePolicy(rp.as_dict())
+        self.assertIsNone(rp2.groupUUID)
+        self.assertEqual(rp2.action, "READ")
+
+    def test_policy_without_group_and_eperson_warns_with_id(self):
+        with self.assertLogs("dspace.models", level="WARNING") as logs:
+            rp = ResourcePolicy({"id": 4, "action": "READ",
+                                 "_embedded": {"group": None, "eperson": None}})
+        self.assertIsNone(rp.groupUUID)
+        self.assertEqual(len(logs.records), 1)
+        self.assertEqual(logs.records[0].levelname, "WARNING")
+        self.assertIn("[4]", logs.records[0].getMessage())
 
 
 if __name__ == "__main__":
