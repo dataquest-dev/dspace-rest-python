@@ -7,7 +7,9 @@ objects. That way a change to the library that breaks URL construction or
 response parsing - the two things downstream code (this repo) depends on -
 fails a test instead of silently shipping.
 """
+import contextlib
 import json
+import logging
 import os
 import re
 import sys
@@ -120,3 +122,19 @@ def policy_json(pid: int = 1, action: str = "READ", group_name: str = "Anonymous
     if start_date is not None:
         d["startDate"] = start_date
     return d
+
+
+@contextlib.contextmanager
+def no_warnings_logged(test, logger_name: str):
+    """``test.assertNoLogs(logger_name, "WARNING")`` - which needs Python 3.10,
+    while ``setup.py`` supports 3.8."""
+    records = []
+    handler = logging.Handler(level=logging.WARNING)
+    handler.emit = records.append
+    logger = logging.getLogger(logger_name)
+    logger.addHandler(handler)
+    try:
+        yield
+    finally:
+        logger.removeHandler(handler)
+    test.assertEqual([r.getMessage() for r in records], [])

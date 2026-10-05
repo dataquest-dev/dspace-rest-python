@@ -10,6 +10,7 @@ tooling would break - these tests pin the shape.
 import unittest
 
 import _helpers  # noqa: F401  (bootstraps sys.path for direct runs)
+from _helpers import no_warnings_logged
 from dspace_rest_client.models import (
     Item, Community, Collection, Bundle, Bitstream, ResourcePolicy)
 
@@ -149,7 +150,7 @@ class TestResourcePolicy(unittest.TestCase):
 
     def test_eperson_policy_has_no_group_and_no_warning(self):
         # a policy granted to a person, not a group: "group" is null
-        with self.assertNoLogs("dspace.models", level="WARNING"):
+        with no_warnings_logged(self, "dspace.models"):
             rp = ResourcePolicy({"id": 3, "action": "READ",
                                  "_embedded": {"group": None,
                                                "eperson": {"uuid": "ep-uuid"}}})

@@ -13,7 +13,7 @@ import _helpers  # noqa: F401
 from _helpers import (
     make_client, sent_params, embedded, item_json, bundle_json,
     bitstream_json, policy_json, load_fixture, API, ITEM_UUID, BITSTREAM_UUID,
-    ANON_GROUP_UUID)
+    ANON_GROUP_UUID, no_warnings_logged)
 from dspace_rest_client.models import Item, Bundle, Collection, Community
 
 
@@ -305,7 +305,7 @@ class TestGetResourcePolicy(unittest.TestCase):
         body = load_fixture("resourcepolicies_eperson_and_group.json")
         with requests_mock.Mocker() as m:
             m.get(f"{API}/authz/resourcepolicies/search/resource", json=body)
-            with self.assertNoLogs("dspace.models", level="WARNING"):
+            with no_warnings_logged(self, "dspace.models"):
                 rps = c.get_resourcepolicy(BITSTREAM_UUID, action="READ")
             self.assertEqual([rp.id for rp in rps], [2481446, 3390404])
             person, group = rps
