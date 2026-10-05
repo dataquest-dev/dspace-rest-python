@@ -597,11 +597,17 @@ class ResourcePolicy(AddressableHALResource):
         # Check for direct groupName/groupUUID (cached format from as_dict())
         self.groupName = api_resource.get('groupName')
         self.groupUUID = api_resource.get('groupUUID')
-        # If not found, try extracting from _embedded structure (live API format)
-        if self.groupName is None and '_embedded' in api_resource:
-            if 'group' in api_resource['_embedded']:
-                self.groupName = api_resource['_embedded']['group'].get('name')
-                self.groupUUID = api_resource['_embedded']['group'].get('uuid')
+        self.epersonUUID = api_resource.get('epersonUUID')
+        # If not found, try extracting from _embedded structure (live API format).
+        # A policy is granted to a group OR to an eperson; the other one is null.
+        embedded = api_resource.get('_embedded') or {}
+        group = embedded.get('group')
+        if self.groupName is None and group:
+            self.groupName = group.get('name')
+            self.groupUUID = group.get('uuid')
+        eperson = embedded.get('eperson')
+        if self.epersonUUID is None and eperson:
+            self.epersonUUID = eperson.get('uuid')
 
     def as_dict(self):
         return {
@@ -615,6 +621,7 @@ class ResourcePolicy(AddressableHALResource):
             'policyType': self.policyType,
             'groupName': self.groupName,
             'groupUUID': self.groupUUID,
+            'epersonUUID': self.epersonUUID,
         }
 
     def __repr__(self):

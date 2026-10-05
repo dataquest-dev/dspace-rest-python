@@ -147,6 +147,22 @@ class TestResourcePolicy(unittest.TestCase):
         self.assertEqual(rp2.groupUUID, "anon")
         self.assertEqual(rp2.action, "READ")
 
+    def test_eperson_policy_as_dict_roundtrip_keeps_eperson_uuid(self):
+        # a policy granted to a person, not a group: "group" is null
+        rp = ResourcePolicy({"id": 3, "action": "READ",
+                             "_embedded": {"group": None,
+                                           "eperson": {"uuid": "ep-uuid",
+                                                       "email": "person@example.org"}}})
+        self.assertIsNone(rp.groupName)
+        self.assertIsNone(rp.groupUUID)
+        self.assertEqual(rp.epersonUUID, "ep-uuid")
+        d = rp.as_dict()
+        self.assertEqual(d["epersonUUID"], "ep-uuid")
+        self.assertNotIn("person@example.org", repr(d))
+        rp2 = ResourcePolicy(d)
+        self.assertEqual(rp2.epersonUUID, "ep-uuid")
+        self.assertIsNone(rp2.groupUUID)
+
 
 if __name__ == "__main__":
     unittest.main()

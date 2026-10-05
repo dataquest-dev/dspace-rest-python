@@ -1,0 +1,275 @@
+{
+ "_embedded": {
+  "resourcepolicies": [
+   {
+    "id": 2481446,
+    "name": null,
+    "description": null,
+    "action": "READ",
+    "startDate": null,
+    "endDate": null,
+    "type": "resourcepolicy",
+    "_links": {
+     "eperson": {
+      "href": "http://dspace.test/server/api/authz/resourcepolicies/2481446/eperson"
+     },
+     "group": {
+      "href": "http://dspace.test/server/api/authz/resourcepolicies/2481446/group"
+     },
+     "resource": {
+      "href": "http://dspace.test/server/api/authz/resourcepolicies/2481446/resource"
+     },
+     "self": {
+      "href": "http://dspace.test/server/api/authz/resourcepolicies/2481446"
+     }
+    },
+    "_embedded": {
+     "eperson": {
+      "id": "33333333-3333-3333-3333-333333333333",
+      "uuid": "33333333-3333-3333-3333-333333333333",
+      "name": "person@example.org",
+      "handle": null,
+      "metadata": {
+       "dspace.agreements.cookies": [
+        {
+         "value": "{\"authentication\":true}",
+         "language": null,
+         "authority": null,
+         "confidence": -1,
+         "place": 0
+        }
+       ],
+       "eperson.firstname": [
+        {
+         "value": "Test",
+         "language": null,
+         "authority": null,
+         "confidence": -1,
+         "place": 0
+        }
+       ],
+       "eperson.language": [
+        {
+         "value": "cs",
+         "language": null,
+         "authority": null,
+         "confidence": -1,
+         "place": 0
+        }
+       ],
+       "eperson.lastname": [
+        {
+         "value": "Person",
+         "language": null,
+         "authority": null,
+         "confidence": -1,
+         "place": 0
+        }
+       ],
+       "eperson.phone": [
+        {
+         "value": "000000000",
+         "language": null,
+         "authority": null,
+         "confidence": -1,
+         "place": 0
+        }
+       ]
+      },
+      "netid": "person-0000[https://idp.example.org/idp/shibboleth]",
+      "lastActive": "2026-01-01T00:00:00.000+00:00",
+      "canLogIn": true,
+      "email": "person@example.org",
+      "requireCertificate": false,
+      "selfRegistered": true,
+      "welcomeInfo": null,
+      "canEditSubmissionMetadata": null,
+      "type": "eperson",
+      "_links": {
+       "groups": {
+        "href": "http://dspace.test/server/api/eperson/epersons/33333333-3333-3333-3333-333333333333/groups"
+       },
+       "self": {
+        "href": "http://dspace.test/server/api/eperson/epersons/33333333-3333-3333-3333-333333333333"
+       }
+      }
+     },
+     "resource": {
+      "id": "9f54ef33-c454-4d8e-a5fe-79d8291045ba",
+      "uuid": "9f54ef33-c454-4d8e-a5fe-79d8291045ba",
+      "name": "license.txt",
+      "handle": null,
+      "metadata": {
+       "dc.source": [
+        {
+         "value": "Written by org.dspace.content.LicenseUtils",
+         "language": null,
+         "authority": null,
+         "confidence": -1,
+         "place": 0
+        }
+       ],
+       "dc.title": [
+        {
+         "value": "license.txt",
+         "language": null,
+         "authority": null,
+         "confidence": -1,
+         "place": 0
+        }
+       ]
+      },
+      "bundleName": "LICENSE",
+      "sizeBytes": 1748,
+      "checkSum": {
+       "checkSumAlgorithm": "MD5",
+       "value": "8a4605be74aa9ea9d79846c1fba20a33"
+      },
+      "sequenceId": 2,
+      "type": "bitstream",
+      "_links": {
+       "content": {
+        "href": "http://dspace.test/server/api/core/bitstreams/9f54ef33-c454-4d8e-a5fe-79d8291045ba/content"
+       },
+       "bundle": {
+        "href": "http://dspace.test/server/api/core/bitstreams/9f54ef33-c454-4d8e-a5fe-79d8291045ba/bundle"
+       },
+       "format": {
+        "href": "http://dspace.test/server/api/core/bitstreams/9f54ef33-c454-4d8e-a5fe-79d8291045ba/format"
+       },
+       "thumbnail": {
+        "href": "http://dspace.test/server/api/core/bitstreams/9f54ef33-c454-4d8e-a5fe-79d8291045ba/thumbnail"
+       },
+       "self": {
+        "href": "http://dspace.test/server/api/core/bitstreams/9f54ef33-c454-4d8e-a5fe-79d8291045ba"
+       }
+      }
+     },
+     "group": null
+    }
+   },
+   {
+    "id": 3390404,
+    "name": null,
+    "policyType": "TYPE_INHERITED",
+    "description": null,
+    "action": "READ",
+    "startDate": null,
+    "endDate": null,
+    "type": "resourcepolicy",
+    "_links": {
+     "eperson": {
+      "href": "http://dspace.test/server/api/authz/resourcepolicies/3390404/eperson"
+     },
+     "group": {
+      "href": "http://dspace.test/server/api/authz/resourcepolicies/3390404/group"
+     },
+     "resource": {
+      "href": "http://dspace.test/server/api/authz/resourcepolicies/3390404/resource"
+     },
+     "self": {
+      "href": "http://dspace.test/server/api/authz/resourcepolicies/3390404"
+     }
+    },
+    "_embedded": {
+     "eperson": null,
+     "resource": {
+      "id": "9f54ef33-c454-4d8e-a5fe-79d8291045ba",
+      "uuid": "9f54ef33-c454-4d8e-a5fe-79d8291045ba",
+      "name": "license.txt",
+      "handle": null,
+      "metadata": {
+       "dc.source": [
+        {
+         "value": "Written by org.dspace.content.LicenseUtils",
+         "language": null,
+         "authority": null,
+         "confidence": -1,
+         "place": 0
+        }
+       ],
+       "dc.title": [
+        {
+         "value": "license.txt",
+         "language": null,
+         "authority": null,
+         "confidence": -1,
+         "place": 0
+        }
+       ]
+      },
+      "bundleName": "LICENSE",
+      "sizeBytes": 1748,
+      "checkSum": {
+       "checkSumAlgorithm": "MD5",
+       "value": "8a4605be74aa9ea9d79846c1fba20a33"
+      },
+      "sequenceId": 2,
+      "type": "bitstream",
+      "_links": {
+       "content": {
+        "href": "http://dspace.test/server/api/core/bitstreams/9f54ef33-c454-4d8e-a5fe-79d8291045ba/content"
+       },
+       "bundle": {
+        "href": "http://dspace.test/server/api/core/bitstreams/9f54ef33-c454-4d8e-a5fe-79d8291045ba/bundle"
+       },
+       "format": {
+        "href": "http://dspace.test/server/api/core/bitstreams/9f54ef33-c454-4d8e-a5fe-79d8291045ba/format"
+       },
+       "thumbnail": {
+        "href": "http://dspace.test/server/api/core/bitstreams/9f54ef33-c454-4d8e-a5fe-79d8291045ba/thumbnail"
+       },
+       "self": {
+        "href": "http://dspace.test/server/api/core/bitstreams/9f54ef33-c454-4d8e-a5fe-79d8291045ba"
+       }
+      }
+     },
+     "group": {
+      "id": "6ecfd145-3b7d-429e-ab31-ef6905a05763",
+      "uuid": "6ecfd145-3b7d-429e-ab31-ef6905a05763",
+      "name": "Anonymous",
+      "handle": null,
+      "metadata": {
+       "dc.title": [
+        {
+         "value": "Anonymous",
+         "language": null,
+         "authority": null,
+         "confidence": -1,
+         "place": 0
+        }
+       ]
+      },
+      "permanent": true,
+      "type": "group",
+      "_links": {
+       "subgroups": {
+        "href": "http://dspace.test/server/api/eperson/groups/6ecfd145-3b7d-429e-ab31-ef6905a05763/subgroups"
+       },
+       "epersons": {
+        "href": "http://dspace.test/server/api/eperson/groups/6ecfd145-3b7d-429e-ab31-ef6905a05763/epersons"
+       },
+       "object": {
+        "href": "http://dspace.test/server/api/eperson/groups/6ecfd145-3b7d-429e-ab31-ef6905a05763/object"
+       },
+       "self": {
+        "href": "http://dspace.test/server/api/eperson/groups/6ecfd145-3b7d-429e-ab31-ef6905a05763"
+       }
+      }
+     }
+    }
+   }
+  ]
+ },
+ "_links": {
+  "self": {
+   "href": "http://dspace.test/server/api/authz/resourcepolicies/search/resource?uuid=9f54ef33-c454-4d8e-a5fe-79d8291045ba&action=READ"
+  }
+ },
+ "page": {
+  "size": 20,
+  "totalElements": 2,
+  "totalPages": 1,
+  "number": 0
+ }
+}

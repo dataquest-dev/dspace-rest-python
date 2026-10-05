@@ -32,6 +32,15 @@ ITEM_UUID = "11111111-1111-1111-1111-111111111111"
 COLLECTION_UUID = "22222222-2222-2222-2222-222222222222"
 BITSTREAM_UUID = "9f54ef33-c454-4d8e-a5fe-79d8291045ba"
 ANON_GROUP_UUID = "6ecfd145-3b7d-429e-ab31-ef6905a05763"
+EPERSON_UUID = "33333333-3333-3333-3333-333333333333"
+
+_FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
+
+
+def load_fixture(name: str) -> dict:
+    """A recorded (anonymised) DSpace response from ``tests/fixtures``."""
+    with open(os.path.join(_FIXTURES, name), encoding="utf-8") as f:
+        return json.load(f)
 
 
 def make_client(api_endpoint: str = API) -> DSpaceClient:

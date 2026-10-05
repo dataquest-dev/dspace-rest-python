@@ -12,7 +12,8 @@ import requests_mock
 import _helpers  # noqa: F401
 from _helpers import (
     make_client, sent_params, embedded, item_json, bundle_json,
-    bitstream_json, policy_json, API, ITEM_UUID, BITSTREAM_UUID)
+    bitstream_json, policy_json, load_fixture, API, ITEM_UUID, BITSTREAM_UUID,
+    ANON_GROUP_UUID, EPERSON_UUID)
 from dspace_rest_client.models import Item, Bundle, Collection, Community
 
 
@@ -295,6 +296,25 @@ class TestGetResourcePolicy(unittest.TestCase):
             p = sent_params(m.last_request)
             self.assertEqual(p["uuid"], [BITSTREAM_UUID])
             self.assertNotIn("action", p)
+
+    def test_eperson_policy_next_to_group_policy_parses_both(self):
+        # Recorded TUL response: a policy granted to a person carries
+        # "_embedded": {"group": null, "eperson": {...}}. It used to raise
+        # AttributeError, losing the valid group policy next to it too.
+        c = make_client()
+        body = load_fixture("resourcepolicies_eperson_and_group.json")
+        with requests_mock.Mocker() as m:
+            m.get(f"{API}/authz/resourcepolicies/search/resource", json=body)
+            rps = c.get_resourcepolicy(BITSTREAM_UUID, action="READ")
+            self.assertEqual([rp.id for rp in rps], [2481446, 3390404])
+            person, group = rps
+            self.assertIsNone(person.groupName)
+            self.assertIsNone(person.groupUUID)
+            self.assertEqual(person.epersonUUID, EPERSON_UUID)
+            self.assertEqual(group.groupName, "Anonymous")
+            self.assertEqual(group.groupUUID, ANON_GROUP_UUID)
+            self.assertEqual(group.policyType, "TYPE_INHERITED")
+            self.assertIsNone(group.epersonUUID)
 
     def test_empty_result_set_returns_empty_list(self):
         # The live endpoint returns an _embedded envelope even when empty.
