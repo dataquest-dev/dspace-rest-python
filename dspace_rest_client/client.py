@@ -17,6 +17,7 @@ better abstracting and handling of HAL-like API responses, plus just all the oth
 import json
 import logging
 import os
+from urllib.parse import urlparse
 from uuid import UUID
 
 import requests
@@ -25,6 +26,9 @@ from requests import Request
 from .models import *
 
 __all__ = ['DSpaceClient']
+
+# cap on the response body echoed into an error log line
+_ERR_BODY_MAX = 500
 
 _logger = logging.getLogger("dspace.client")
 # A library must not configure the root logger - that is the consuming
@@ -522,7 +526,18 @@ class DSpaceClient:
             # record the failing response so callers can tell a 404 (the
             # resource is gone) from a transient 5xx before we drop the body
             self._last_err = r
-            _logger.error(f'Error encountered fetching resource: {r.text}')
+            path = urlparse(r.url).path
+            if r.status_code == 401:
+                _logger.warning(
+                    f'DSpace returned 401 for [{path}] - session token probably '
+                    'expired, the caller re-authenticates')
+            elif r.status_code == 404:
+                _logger.warning(
+                    f'DSpace returned 404 for [{path}] - resource not found (deleted?)')
+            else:
+                _logger.error(
+                    f'Error encountered fetching resource: {r.status_code} for '
+                    f'[{path}]: {r.text[:_ERR_BODY_MAX]}')
             return None
         # ValueError / JSON handling moved to static method
         return parse_json(r)

@@ -337,6 +337,51 @@ class TestFetchResource(unittest.TestCase):
             self.assertIsNone(c.fetch_resource(url))
             self.assertEqual(c.last_err.status_code, 404)
 
+    def test_401_logs_warning_with_path_not_body(self):
+        # an expired session token: the caller re-authenticates and retries,
+        # so this is not an ERROR and the JSON body is noise
+        c = make_client()
+        url = f"{API}/core/items/{ITEM_UUID}/bundles"
+        with requests_mock.Mocker() as m:
+            m.get(url, status_code=401,
+                  json={"status": 401, "message": "Authentication is required"})
+            with self.assertLogs("dspace.client", level="WARNING") as logs:
+                self.assertIsNone(c.fetch_resource(url, params={"size": 10}))
+            self.assertEqual(c.last_err.status_code, 401)
+        self.assertEqual(logs.output, [
+            "WARNING:dspace.client:DSpace returned 401 for "
+            f"[/server/api/core/items/{ITEM_UUID}/bundles] - session token "
+            "probably expired, the caller re-authenticates"])
+
+    def test_404_logs_warning_with_path_not_body(self):
+        c = make_client()
+        url = f"{API}/core/items/{ITEM_UUID}/bundles"
+        with requests_mock.Mocker() as m:
+            m.get(url, status_code=404, json={"timestamp": "2026-01-01"})
+            with self.assertLogs("dspace.client", level="WARNING") as logs:
+                self.assertIsNone(c.fetch_resource(url))
+        self.assertEqual(logs.output, [
+            "WARNING:dspace.client:DSpace returned 404 for "
+            f"[/server/api/core/items/{ITEM_UUID}/bundles] - resource not "
+            "found (deleted?)"])
+
+    def test_other_error_logs_error_with_truncated_body(self):
+        c = make_client()
+        url = f"{API}/core/items/{ITEM_UUID}/bundles"
+        with requests_mock.Mocker() as m:
+            m.get(url, status_code=500, text="boom" + "x" * 5000)
+            with self.assertLogs("dspace.client", level="WARNING") as logs:
+                self.assertIsNone(c.fetch_resource(url))
+            self.assertEqual(c.last_err.status_code, 500)
+        self.assertEqual(len(logs.records), 1)
+        rec = logs.records[0]
+        self.assertEqual(rec.levelname, "ERROR")
+        msg = rec.getMessage()
+        self.assertIn("500", msg)
+        self.assertIn(f"/server/api/core/items/{ITEM_UUID}/bundles", msg)
+        self.assertIn("boom", msg)
+        self.assertLess(len(msg), 1000)
+
 
 if __name__ == "__main__":
     unittest.main()
