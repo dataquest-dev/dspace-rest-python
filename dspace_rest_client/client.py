@@ -544,6 +544,45 @@ class DSpaceClient:
         # ValueError / JSON handling moved to static method
         return parse_json(r)
 
+    def _fetch_all_pages(self, url, params, key, what):
+        """
+        Fetch a HAL list with every page from params['page'] (default 0) on, and
+        verify the collected count against the server's page.totalElements.
+        @param url:     DSpace REST API URL
+        @param params:  query params of the first request, reused for later pages
+        @param key:     name of the list under '_embedded', eg. 'bundles'
+        @param what:    noun for error messages, eg. 'bundles'
+        @return:        list of raw JSON resources, or None when the FIRST request
+                        failed (self._last_err holds it; the caller decides)
+        @raise RuntimeError: a later page failed, or fewer/more elements arrived
+                        than the server reported - never a silently partial list
+        """
+        r_json = self.fetch_resource(url, params=params)
+        if r_json is None:
+            return None
+        resources = list((r_json.get('_embedded') or {}).get(key) or [])
+        page = r_json.get('page')
+        if page is None:
+            return resources
+        first = page.get('number', 0)
+        # bounded by the first response, so a server repeating a page cannot loop
+        for number in range(first + 1, page.get('totalPages', 0)):
+            r_json = self.fetch_resource(url, params={**params, 'page': number})
+            if r_json is None:
+                status = getattr(self._last_err, 'status_code', None)
+                raise RuntimeError(
+                    f'Failed to fetch {what} page {number}: HTTP {status} [{url}]')
+            resources.extend((r_json.get('_embedded') or {}).get(key) or [])
+        total = page.get('totalElements')
+        if total is None:
+            return resources
+        expected = max(total - first * page.get('size', 0), 0)
+        if len(resources) != expected:
+            raise RuntimeError(
+                f'Incomplete {what}: collected {len(resources)} of {expected} '
+                f'[{url}]')
+        return resources
+
     def get_resourcepolicy(self, uuid, action='READ'):
         """
         Fetch resource policies for a given resource UUID and action.
@@ -558,13 +597,12 @@ class DSpaceClient:
             params = {'uuid': uuid}
             if action is not None:
                 params['action'] = action
-            r_json = self.fetch_resource(url, params=params)
-            if r_json is None:
+            arr = self._fetch_all_pages(url, params, 'resourcepolicies',
+                                        'resource policies')
+            if arr is None:
                 return None
-            if '_embedded' not in r_json:
+            if not arr:
                 _logger.debug(f"No resource policies found for resource UUID: {uuid} [{url}]")
-                return []
-            arr = r_json['_embedded'].get('resourcepolicies') or []
             return [ResourcePolicy(x) for x in arr]
         except ValueError as e:
             _logger.error(f'Invalid resource UUID: {uuid} - {e}')
@@ -761,8 +799,11 @@ class DSpaceClient:
             params['page'] = page
         if sort is not None:
             params['sort'] = sort
-        r_json = self.fetch_resource(url, params=params)
-        if r_json is None:
+        if single_result:
+            result = self.fetch_resource(url, params=params)
+        else:
+            result = self._fetch_all_pages(url, params, 'bundles', 'bundles')
+        if result is None:
             status = getattr(self._last_err, 'status_code', None)
             if status == 404:
                 # a deleted item (or bundle) simply has no bundles, which is a
@@ -775,10 +816,9 @@ class DSpaceClient:
             raise RuntimeError(f'Failed to fetch bundles: HTTP {status} [{url}]')
         try:
             if single_result:
-                bundles.append(Bundle(r_json))
+                bundles.append(Bundle(result))
             if not single_result:
-                resources = r_json['_embedded']['bundles']
-                for resource in resources:
+                for resource in result:
                     bundles.append(Bundle(resource))
         except ValueError as err:
             _logger.error(f'error parsing bundle results: {err}')
@@ -812,7 +852,7 @@ class DSpaceClient:
         Get a specific bitstream UUID, or all bitstreams for a specific bundle
         @param uuid:    UUID of a specific bitstream to retrieve
         @param bundle:  A python Bundle object to parse for bitstream links to retrieve
-        @param page:    Page number, for pagination over large result sets (default: 0)
+        @param page:    First page to fetch; every later page is fetched too (default: 0)
         @param size:    Size of results per page (default: 20)
         @return:        list of python Bitstream objects
         """
@@ -833,8 +873,8 @@ class DSpaceClient:
             params['page'] = page
         if sort is not None:
             params['sort'] = sort
-        r_json = self.fetch_resource(url, params=params)
-        if r_json is None:
+        resources = self._fetch_all_pages(url, params, 'bitstreams', 'bitstreams')
+        if resources is None:
             status = getattr(self._last_err, 'status_code', None)
             if status == 404:
                 # the bundle (or item) is gone - no bitstreams, a clean empty
@@ -844,11 +884,7 @@ class DSpaceClient:
             # a transient 5xx must NOT masquerade as "no bitstreams"; surface it
             # with status + url so the caller can retry, not an opaque TypeError.
             raise RuntimeError(f'Failed to fetch bitstreams: HTTP {status} [{url}]')
-        bitstreams = list()
-        if '_embedded' in r_json and 'bitstreams' in r_json['_embedded']:
-            for bitstream_resource in r_json['_embedded']['bitstreams']:
-                bitstreams.append(Bitstream(bitstream_resource))
-        return bitstreams
+        return [Bitstream(bitstream_resource) for bitstream_resource in resources]
 
     def create_bitstream(self, bundle=None, name=None, path=None, mime=None, metadata=None, retry=False, timeout=None):
         """

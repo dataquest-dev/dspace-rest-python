@@ -89,6 +89,15 @@ def embedded(key: str, resources: list) -> dict:
     return {"_embedded": {key: resources}}
 
 
+def paged(key: str, resources: list, number: int, size: int,
+          total_elements: int) -> dict:
+    """One page of a HAL list, with the ``page`` object DSpace sends alongside."""
+    total_pages = -(-total_elements // size)
+    return {"_embedded": {key: resources},
+            "page": {"size": size, "totalElements": total_elements,
+                     "totalPages": total_pages, "number": number}}
+
+
 def item_json(uuid: str = ITEM_UUID, name: str = "Thesis", **extra) -> dict:
     d = {"uuid": uuid, "name": name, "type": "item", "metadata": {},
          "inArchive": True, "discoverable": True, "withdrawn": False}

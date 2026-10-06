@@ -13,7 +13,7 @@ import _helpers  # noqa: F401
 from _helpers import (
     make_client, sent_params, embedded, item_json, bundle_json,
     bitstream_json, policy_json, load_fixture, API, ITEM_UUID, BITSTREAM_UUID,
-    ANON_GROUP_UUID, no_warnings_logged)
+    ANON_GROUP_UUID, no_warnings_logged, paged)
 from dspace_rest_client.models import Item, Bundle, Collection, Community
 
 
@@ -147,6 +147,65 @@ class TestGetBundles(unittest.TestCase):
             self.assertEqual(c.get_bundles(), [])
             self.assertEqual(m.call_count, 0)
 
+    def test_by_parent_follows_every_page(self):
+        # a truncated bundle list makes an item look like it has no ORIGINAL
+        c = make_client()
+        parent = Item(item_json(ITEM_UUID))
+        url = f"{API}/core/items/{ITEM_UUID}/bundles"
+        with requests_mock.Mocker() as m:
+            m.get(f"{url}?page=0", json=paged("bundles", [
+                bundle_json("b1", "ORIGINAL"), bundle_json("b2", "THUMBNAIL")],
+                number=0, size=2, total_elements=3))
+            m.get(f"{url}?page=1", json=paged("bundles", [
+                bundle_json("b3", "LICENSE")], number=1, size=2, total_elements=3))
+            bundles = c.get_bundles(parent=parent, size=2)
+            self.assertEqual([b.uuid for b in bundles], ["b1", "b2", "b3"])
+            self.assertEqual(
+                [sent_params(r) for r in m.request_history],
+                [{"size": ["2"], "page": ["0"]}, {"size": ["2"], "page": ["1"]}])
+
+    def test_single_complete_page_is_one_request(self):
+        c = make_client()
+        parent = Item(item_json(ITEM_UUID))
+        with requests_mock.Mocker() as m:
+            m.get(f"{API}/core/items/{ITEM_UUID}/bundles", json=paged("bundles", [
+                bundle_json("b1"), bundle_json("b2")],
+                number=0, size=20, total_elements=2))
+            self.assertEqual([b.uuid for b in c.get_bundles(parent=parent)],
+                             ["b1", "b2"])
+            self.assertEqual(m.call_count, 1)
+
+    def test_fewer_elements_than_total_raises(self):
+        # the server's own count proves elements are missing
+        c = make_client()
+        parent = Item(item_json(ITEM_UUID))
+        url = f"{API}/core/items/{ITEM_UUID}/bundles"
+        with requests_mock.Mocker() as m:
+            m.get(f"{url}?page=0", json=paged("bundles", [
+                bundle_json("b1"), bundle_json("b2")],
+                number=0, size=2, total_elements=3))
+            m.get(f"{url}?page=1", json=paged("bundles", [],
+                                              number=1, size=2, total_elements=3))
+            with self.assertRaises(RuntimeError) as ctx:
+                c.get_bundles(parent=parent, size=2)
+            msg = str(ctx.exception)
+            self.assertIn("collected 2 of 3", msg)
+            self.assertIn(url, msg)
+
+    def test_error_on_later_page_raises_not_partial_list(self):
+        c = make_client()
+        parent = Item(item_json(ITEM_UUID))
+        url = f"{API}/core/items/{ITEM_UUID}/bundles"
+        with requests_mock.Mocker() as m:
+            m.get(f"{url}?page=0", json=paged("bundles", [
+                bundle_json("b1"), bundle_json("b2")],
+                number=0, size=2, total_elements=3))
+            m.get(f"{url}?page=1", status_code=503, text="busy")
+            with self.assertRaises(RuntimeError) as ctx:
+                c.get_bundles(parent=parent, size=2)
+            self.assertIn("503", str(ctx.exception))
+            self.assertIn(url, str(ctx.exception))
+
 
 class TestGetBitstreams(unittest.TestCase):
 
@@ -216,6 +275,55 @@ class TestGetBitstreams(unittest.TestCase):
             m.get(f"{API}/core/bundles/bnd2/bitstreams",
                   json={"page": {"totalElements": 0}})
             self.assertEqual(c.get_bitstreams(bundle=bundle), [])
+
+    def test_by_bundle_follows_every_page(self):
+        c = make_client()
+        bundle = Bundle(bundle_json("bnd2"))
+        url = f"{API}/core/bundles/bnd2/bitstreams"
+        with requests_mock.Mocker() as m:
+            m.get(f"{url}?page=0", json=paged("bitstreams", [
+                bitstream_json("s1"), bitstream_json("s2")],
+                number=0, size=2, total_elements=3))
+            m.get(f"{url}?page=1", json=paged("bitstreams", [
+                bitstream_json("s3")], number=1, size=2, total_elements=3))
+            bs = c.get_bitstreams(bundle=bundle, size=2)
+            self.assertEqual([b.uuid for b in bs], ["s1", "s2", "s3"])
+            self.assertEqual(
+                [sent_params(r) for r in m.request_history],
+                [{"size": ["2"], "page": ["0"]}, {"size": ["2"], "page": ["1"]}])
+
+    def test_fewer_elements_than_total_raises(self):
+        # eg. a server capping the page size below the requested one
+        c = make_client()
+        bundle = Bundle(bundle_json("bnd2"))
+        url = f"{API}/core/bundles/bnd2/bitstreams"
+        with requests_mock.Mocker() as m:
+            m.get(f"{url}?page=0", json=paged("bitstreams", [
+                bitstream_json("s1"), bitstream_json("s2")],
+                number=0, size=2, total_elements=5))
+            m.get(f"{url}?page=1", json=paged("bitstreams", [
+                bitstream_json("s3"), bitstream_json("s4")],
+                number=1, size=2, total_elements=5))
+            m.get(f"{url}?page=2", json=paged("bitstreams", [],
+                                              number=2, size=2, total_elements=5))
+            with self.assertRaises(RuntimeError) as ctx:
+                c.get_bitstreams(bundle=bundle, size=2)
+            msg = str(ctx.exception)
+            self.assertIn("collected 4 of 5", msg)
+            self.assertIn(url, msg)
+
+    def test_error_on_later_page_raises_not_partial_list(self):
+        c = make_client()
+        bundle = Bundle(bundle_json("bnd2"))
+        url = f"{API}/core/bundles/bnd2/bitstreams"
+        with requests_mock.Mocker() as m:
+            m.get(f"{url}?page=0", json=paged("bitstreams", [
+                bitstream_json("s1"), bitstream_json("s2")],
+                number=0, size=2, total_elements=3))
+            m.get(f"{url}?page=1", status_code=500, text="boom")
+            with self.assertRaises(RuntimeError) as ctx:
+                c.get_bitstreams(bundle=bundle, size=2)
+            self.assertIn("500", str(ctx.exception))
 
 
 class TestGetCollections(unittest.TestCase):
@@ -335,6 +443,55 @@ class TestGetResourcePolicy(unittest.TestCase):
             m.get(f"{API}/authz/resourcepolicies/search/resource",
                   status_code=500, text="boom")
             self.assertIsNone(c.get_resourcepolicy(BITSTREAM_UUID))
+
+    def test_follows_every_page(self):
+        # a policy cut off by paging reads downstream as "the file has no such
+        # policy", eg. a missing Anonymous READ
+        c = make_client()
+        url = f"{API}/authz/resourcepolicies/search/resource"
+        with requests_mock.Mocker() as m:
+            # no page param on the first request, as before this paging fix
+            m.get(url, json=paged("resourcepolicies", [
+                policy_json(pid=1), policy_json(pid=2)],
+                number=0, size=2, total_elements=3))
+            m.get(f"{url}?page=1", json=paged("resourcepolicies", [
+                policy_json(pid=3)], number=1, size=2, total_elements=3))
+            rps = c.get_resourcepolicy(BITSTREAM_UUID, action="READ")
+            self.assertEqual([rp.id for rp in rps], [1, 2, 3])
+            p0, p1 = [sent_params(r) for r in m.request_history]
+            self.assertEqual(p0, {"uuid": [BITSTREAM_UUID], "action": ["READ"]})
+            self.assertEqual(p1, {"uuid": [BITSTREAM_UUID], "action": ["READ"],
+                                  "page": ["1"]})
+
+    def test_missing_embedded_with_nonzero_total_raises(self):
+        c = make_client()
+        with requests_mock.Mocker() as m:
+            m.get(f"{API}/authz/resourcepolicies/search/resource",
+                  json={"page": {"size": 20, "totalElements": 1,
+                                 "totalPages": 1, "number": 0}})
+            with self.assertRaises(RuntimeError):
+                c.get_resourcepolicy(BITSTREAM_UUID)
+
+    def test_missing_embedded_with_zero_total_returns_empty_list(self):
+        c = make_client()
+        with requests_mock.Mocker() as m:
+            m.get(f"{API}/authz/resourcepolicies/search/resource",
+                  json={"page": {"size": 20, "totalElements": 0,
+                                 "totalPages": 0, "number": 0}})
+            self.assertEqual(c.get_resourcepolicy(BITSTREAM_UUID), [])
+
+    def test_error_on_later_page_raises_not_partial_list(self):
+        c = make_client()
+        url = f"{API}/authz/resourcepolicies/search/resource"
+        with requests_mock.Mocker() as m:
+            # no page param on the first request, as before this paging fix
+            m.get(url, json=paged("resourcepolicies", [
+                policy_json(pid=1), policy_json(pid=2)],
+                number=0, size=2, total_elements=3))
+            m.get(f"{url}?page=1", status_code=502, text="bad gateway")
+            with self.assertRaises(RuntimeError) as ctx:
+                c.get_resourcepolicy(BITSTREAM_UUID)
+            self.assertIn("502", str(ctx.exception))
 
 
 class TestFetchResource(unittest.TestCase):
