@@ -13,3 +13,5 @@ __pypackages__/
 env/
 venv/
 .idea/
+.coverage
+coverage.xml
