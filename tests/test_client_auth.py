@@ -6,6 +6,7 @@ calls ``authenticate()``; a False return is turned into a hard ConnectionError,
 so the True/False semantics here matter.
 """
 import unittest
+from unittest import mock
 
 import requests_mock
 
@@ -31,6 +32,16 @@ class TestConstructor(unittest.TestCase):
         # every request must be bounded so a stalled server can't hang forever
         self.assertEqual(make_client().timeout, DSpaceClient.DEFAULT_TIMEOUT)
         self.assertEqual(DSpaceClient(API, "u", "p", timeout=5).timeout, 5)
+
+    def test_proxies_default_to_proxy_dict(self):
+        with mock.patch.object(DSpaceClient, "PROXY_DICT", {"http": "http://px:1"}):
+            self.assertEqual(make_client().proxies, {"http": "http://px:1"})
+
+    def test_explicit_proxies_none_is_kept(self):
+        # None lets requests resolve proxies itself (env vars); it must not be
+        # replaced by PROXY_DICT
+        with mock.patch.object(DSpaceClient, "PROXY_DICT", {"http": "http://px:1"}):
+            self.assertIsNone(DSpaceClient(API, "u", "p", proxies=None).proxies)
 
     def test_library_does_not_hijack_root_logger(self):
         # importing the client must not call logging.basicConfig; the module

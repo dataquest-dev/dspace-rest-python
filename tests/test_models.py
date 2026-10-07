@@ -12,7 +12,7 @@ import unittest
 import _helpers  # noqa: F401  (bootstraps sys.path for direct runs)
 from _helpers import no_warnings_logged
 from dspace_rest_client.models import (
-    Item, Community, Collection, Bundle, Bitstream, ResourcePolicy)
+    Item, Community, Collection, Bundle, Bitstream, ResourcePolicy, Group, User)
 
 
 class TestItem(unittest.TestCase):
@@ -168,6 +168,17 @@ class TestResourcePolicy(unittest.TestCase):
         self.assertEqual(len(logs.records), 1)
         self.assertEqual(logs.records[0].levelname, "WARNING")
         self.assertIn("[4]", logs.records[0].getMessage())
+
+
+class TestGroupAndUserDefaults(unittest.TestCase):
+
+    def test_constructible_without_api_resource(self):
+        # the signature allows None (the default); it must not raise TypeError
+        for cls in (Group, User):
+            with self.subTest(cls=cls.__name__):
+                obj = cls()
+                self.assertIsNone(obj.name)
+                self.assertIsNone(obj.uuid)
 
 
 if __name__ == "__main__":
