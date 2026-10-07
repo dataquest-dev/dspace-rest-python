@@ -430,6 +430,7 @@ class Group(DSpaceObject):
         Default constructor. Call DSpaceObject init then set group-specific attributes
         @param api_resource: API result object to use as initial data
         """
+        api_resource = api_resource or {}
         super().__init__(api_resource)
         self.type = 'group'
         if 'name' in api_resource:
@@ -465,6 +466,7 @@ class User(SimpleDSpaceObject):
         Default constructor. Call DSpaceObject init then set user-specific attributes
         @param api_resource: API result object to use as initial data
         """
+        api_resource = api_resource or {}
         super().__init__(api_resource)
         self.type = 'user'
         if 'name' in api_resource:
