@@ -12,7 +12,7 @@ when creating, updating, retrieving and deleting DSpace Objects.
 from __future__ import annotations
 
 from collections.abc import Callable
-from copy import deepcopy
+from copy import copy as shallow_copy, deepcopy
 import json
 import logging
 from typing import Any
@@ -41,8 +41,8 @@ def _fresh(default: Any) -> Any:
 
 
 def _shallow(value: Any) -> Any:
-    """Shallow copy of a value taken from an API resource."""
-    return value.copy()
+    """Shallow copy of a value taken from an API resource; None stays None."""
+    return shallow_copy(value)
 
 
 class HALResource:
