@@ -14,11 +14,12 @@ Marks:
 import unittest
 
 import pytest
+import requests
 import requests_mock
 
 import _helpers  # noqa: F401
 from _helpers import (
-    make_client, sent_params, embedded, item_json, bundle_json, raw_policy_json,
+    make_client, sent_params, embedded, no_warnings_logged, item_json, bundle_json, raw_policy_json,
     user_json, clarin_allowance_json, search_envelope,
     API, ITEM_UUID, COLLECTION_UUID, BUNDLE_UUID, EPERSON_UUID)
 from dspace_rest_client.models import Bundle, Item, Collection, User
@@ -131,12 +132,15 @@ class TestGetItemsFromCollection(unittest.TestCase):
             self.assertEqual(qs["embed"], ["thumbnail"])
 
     @pytest.mark.dtq_only
-    def test_non_200_returns_empty(self):
-        """D6: a failed request must yield [], not a NoneType subscript crash."""
+    def test_non_200_returns_none_and_records_last_err(self):
+        """D6: a failed page must not look like an empty one - [] is the
+        consumers' end-of-collection signal, so an error would silently
+        truncate their paging loop. None + last_err tells the two apart."""
         c = make_client()
         with requests_mock.Mocker() as m:
             m.get(self.URL, status_code=500, text="boom")
-            self.assertEqual(c.get_items_from_collection(COLLECTION_UUID), [])
+            self.assertIsNone(c.get_items_from_collection(COLLECTION_UUID))
+            self.assertEqual(c.last_err.status_code, 500)
 
 
 class TestGetItemByHandle(unittest.TestCase):
@@ -187,18 +191,38 @@ class TestGetUserByEmail(unittest.TestCase):
             self.assertEqual(sent_params(m.last_request)["email"], ["a@b.c"])
 
     @pytest.mark.dtq_only
-    def test_404_returns_none(self):
-        """D4: a miss (404) must be falsy, not a truthy uuid-less User that
-        slips past the consumer's `if user:` guard."""
+    def test_204_no_content_is_a_clean_miss(self):
+        """D4: DSpace answers an unknown email with 204 No Content. That is a
+        clean miss - None, nothing logged, no last_err - not a truthy
+        uuid-less User that slips past the consumer's `if user:` guard."""
+        c = make_client()
+        with requests_mock.Mocker() as m, no_warnings_logged(self, "dspace.client"):
+            m.get(self.URL, status_code=204)
+            self.assertIsNone(c.get_user_by_email("nobody@nowhere"))
+        self.assertIsNone(c.last_err)
+
+    @pytest.mark.dtq_only
+    def test_error_status_returns_none_logs_error_and_records_last_err(self):
+        """A 404 means a misconfigured endpoint, 401/403/5xx a real failure:
+        None, but logged at ERROR (without the raw email) and kept in last_err
+        so it is distinguishable from the clean 204 miss."""
+        for status in (404, 401, 403, 500):
+            with self.subTest(status=status):
+                c = make_client()
+                with requests_mock.Mocker() as m, self.assertLogs("dspace.client", "ERROR") as logs:
+                    m.get(self.URL, status_code=status, json={"timestamp": "now"})
+                    self.assertIsNone(c.get_user_by_email("nobody@nowhere"))
+                self.assertEqual(c.last_err.status_code, status)
+                self.assertNotIn("nobody@nowhere", " ".join(logs.output))
+
+    @pytest.mark.dtq_only
+    def test_transport_error_is_not_a_clean_miss(self):
+        """A timeout must not return the clean-miss None: it propagates."""
         c = make_client()
         with requests_mock.Mocker() as m:
-            m.get(self.URL, status_code=404, json={"timestamp": "now"})
-            u = c.get_user_by_email("nobody@nowhere")
-            self.assertIsNone(u)
-            self.assertFalse(bool(u))
-            # the failing response is retained for callers, even for a 404 miss
-            self.assertIsNotNone(c.last_err)
-            self.assertEqual(c.last_err.status_code, 404)
+            m.get(self.URL, exc=requests.exceptions.ConnectTimeout)
+            with self.assertRaises(requests.exceptions.ConnectTimeout):
+                c.get_user_by_email("nobody@nowhere")
 
 
 class TestGetClarinAllowances(unittest.TestCase):
@@ -257,6 +281,20 @@ class TestGetOwningCollection(unittest.TestCase):
             self.assertIsNone(col)
             self.assertIsNotNone(c.last_err)
             self.assertEqual(c.last_err.status_code, 401)
+
+    def test_unparseable_200_returns_none_and_sets_last_err(self):
+        c = make_client()
+        with requests_mock.Mocker() as m:
+            m.get(self.URL, status_code=200, text="<html>proxy page</html>")
+            self.assertIsNone(c.get_owningCollection(ITEM_UUID))
+            self.assertEqual(c.last_err.status_code, 200)
+
+    def test_transport_error_returns_none_without_raising(self):
+        """One timeout must not abort the consumer's prefetch loop."""
+        c = make_client()
+        with requests_mock.Mocker() as m, self.assertLogs("dspace.client", "ERROR"):
+            m.get(self.URL, exc=requests.exceptions.ReadTimeout)
+            self.assertIsNone(c.get_owningCollection(ITEM_UUID))
 
 
 if __name__ == "__main__":

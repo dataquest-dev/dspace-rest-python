@@ -136,8 +136,8 @@ class TestRestTestSubmitterSetup(unittest.TestCase):
         User and fail deep inside add_member."""
         c = make_client()
         with requests_mock.Mocker() as m:
-            m.get(f"{API}/eperson/epersons/search/byEmail",
-                  status_code=404, json={"timestamp": "now"})
+            # DSpace answers an unknown email with 204 No Content
+            m.get(f"{API}/eperson/epersons/search/byEmail", status_code=204)
 
             user = c.get_user_by_email("ghost@nowhere")
             self.assertIsNone(user)

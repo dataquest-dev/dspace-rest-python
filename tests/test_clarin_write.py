@@ -13,7 +13,7 @@ import requests_mock
 
 import _helpers  # noqa: F401
 from _helpers import (
-    make_client, sent_params, item_json, embedded,
+    make_client, sent_params, item_json, embedded, group_json, user_json,
     API, ITEM_UUID, BITSTREAM_UUID, COLLECTION_UUID, EPERSON_UUID, GROUP_UUID)
 from dspace_rest_client.models import Group, User, Collection, Item, DSpaceObject
 
@@ -154,6 +154,44 @@ class TestCreateSubmitGroup(unittest.TestCase):
         with requests_mock.Mocker() as m:
             m.post(url, status_code=201, text="")
             self.assertIsNone(c.create_submit_group(self._collection()))
+
+
+    @pytest.mark.dtq_only
+    def test_201_without_uuid_returns_none(self):
+        """A parsed body without a uuid is not a usable group either."""
+        c = make_client()
+        url = f"{API}/core/collections/{COLLECTION_UUID}/submittersGroup"
+        with requests_mock.Mocker() as m:
+            m.post(url, status_code=201, json={"type": "group"})
+            self.assertIsNone(c.create_submit_group(self._collection()))
+
+
+class TestCreateGroupAndUser(unittest.TestCase):
+    """Group(None)/User(None) are accepted, so a failed create must not hand
+    back a truthy uuid-less object that passes an `if group:` guard."""
+
+    CASES = (("create_group", "eperson/groups", Group, group_json),
+             ("create_user", "eperson/epersons", User, user_json))
+
+    def test_201_returns_typed_object(self):
+        for method, path, cls, body in self.CASES:
+            with self.subTest(method=method):
+                c = make_client()
+                with requests_mock.Mocker() as m:
+                    m.post(f"{API}/{path}", status_code=201, json=body())
+                    obj = getattr(c, method)({"name": "x"})
+                    self.assertIsInstance(obj, cls)
+                    self.assertIsNotNone(obj.uuid)
+
+    @pytest.mark.dtq_only
+    def test_failed_create_returns_none(self):
+        for method, path, _cls, _body in self.CASES:
+            with self.subTest(method=method):
+                c = make_client()
+                with requests_mock.Mocker() as m:
+                    m.post(f"{API}/{path}", status_code=422,
+                           json={"message": "Unprocessable"})
+                    self.assertIsNone(getattr(c, method)({"name": "x"}))
 
 
 class TestAddMember(unittest.TestCase):
