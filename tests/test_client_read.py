@@ -140,22 +140,101 @@ class TestUuidValidation(unittest.TestCase):
 class TestListEndpointsOnFailedResponses(unittest.TestCase):
     """A non-JSON / error body must not become a TypeError on ``'_embedded' in None``."""
 
-    def test_list_endpoints_return_none_on_non_json_body(self):
+    def test_bundle_by_name_returns_none_on_failed_response(self):
+        c = make_client()
+        url = f"{API}/core/items/{ITEM_UUID}/bundles"
+        for status, body in ((404, "Not Found"), (200, "<html>nope</html>")):
+            with self.subTest(status=status), requests_mock.Mocker() as m:
+                m.get(url, status_code=status, text=body)
+                self.assertIsNone(c.get_bundle_by_name("ORIGINAL", ITEM_UUID))
+
+    def test_community_and_collection_lists_raise_on_failed_page(self):
+        # a paging caller treats an empty or None page as the last one, so a
+        # failed page must not look like the end of the list
         c = make_client()
         cases = (
-            ("get_communities", f"{API}/core/communities",
-             lambda: c.get_communities()),
+            ("get_communities", f"{API}/core/communities/search/top",
+             lambda: c.get_communities(top=True, page=1)),
             ("get_collections", f"{API}/core/collections",
-             lambda: c.get_collections()),
-            ("get_bundle_by_name", f"{API}/core/items/{ITEM_UUID}/bundles",
-             lambda: c.get_bundle_by_name("ORIGINAL", ITEM_UUID)),
+             lambda: c.get_collections(page=1)),
         )
         for name, url, call in cases:
-            for status, body in ((404, "Not Found"), (200, "<html>nope</html>")):
+            for status, body in ((500, "boom"), (404, "Not Found"),
+                                 (200, "<html>nope</html>")):
                 with self.subTest(name=name, status=status), \
                         requests_mock.Mocker() as m:
                     m.get(url, status_code=status, text=body)
-                    self.assertIsNone(call())
+                    with self.assertRaises(RuntimeError) as ctx:
+                        call()
+                    self.assertIn(url, str(ctx.exception))
+                    if status != 200:
+                        self.assertIn(f"HTTP {status}", str(ctx.exception))
+
+    def test_single_community_or_collection_404_returns_none(self):
+        c = make_client()
+        cases = (
+            ("get_communities", f"{API}/core/communities/{ITEM_UUID}",
+             lambda: c.get_communities(uuid=ITEM_UUID)),
+            ("get_collections", f"{API}/core/collections/{ITEM_UUID}",
+             lambda: c.get_collections(uuid=ITEM_UUID)),
+        )
+        for name, url, call in cases:
+            with self.subTest(name=name), requests_mock.Mocker() as m:
+                m.get(url, status_code=404, text="Not Found")
+                self.assertIsNone(call())
+                m.get(url, status_code=500, text="boom")
+                with self.assertRaises(RuntimeError):
+                    call()
+
+    def test_earlier_404_does_not_mask_a_later_non_json_response(self):
+        c = make_client()
+        url = f"{API}/core/communities/{ITEM_UUID}"
+        with requests_mock.Mocker() as m:
+            m.get(url, status_code=404)
+            self.assertIsNone(c.get_communities(uuid=ITEM_UUID))
+            m.get(url, text="<html>nope</html>")
+            with self.assertRaises(RuntimeError):
+                c.get_communities(uuid=ITEM_UUID)
+
+
+class TestOwningCollection(unittest.TestCase):
+
+    def test_failed_response_returns_none_and_records_last_err(self):
+        c = make_client()
+        url = f"{API}/core/items/{ITEM_UUID}/owningCollection"
+        with requests_mock.Mocker() as m:
+            m.get(url, status_code=500, json={"message": "boom"})
+            self.assertIsNone(c.get_owningCollection(ITEM_UUID))
+            self.assertEqual(c.last_err.status_code, 500)
+
+    def test_ok_response_returns_collection(self):
+        c = make_client()
+        url = f"{API}/core/items/{ITEM_UUID}/owningCollection"
+        with requests_mock.Mocker() as m:
+            m.get(url, json={"uuid": "col1", "name": "C", "type": "collection"})
+            col = c.get_owningCollection(ITEM_UUID)
+            self.assertIsInstance(col, Collection)
+            self.assertEqual(col.uuid, "col1")
+
+
+class TestGetUserByEmail(unittest.TestCase):
+
+    def test_unknown_email_returns_none(self):
+        # DSpace answers an unknown email with 204 No Content
+        c = make_client()
+        url = f"{API}/eperson/epersons/search/byEmail"
+        with requests_mock.Mocker() as m:
+            m.get(url, status_code=204, text="")
+            self.assertIsNone(c.get_user_by_email("nobody@dspace.test"))
+
+    def test_known_email_returns_user(self):
+        c = make_client()
+        url = f"{API}/eperson/epersons/search/byEmail"
+        with requests_mock.Mocker() as m:
+            m.get(url, json={"uuid": "u1", "email": "a@dspace.test",
+                             "type": "eperson"})
+            user = c.get_user_by_email("a@dspace.test")
+            self.assertEqual((user.uuid, user.email), ("u1", "a@dspace.test"))
 
 
 class TestGetBundles(unittest.TestCase):

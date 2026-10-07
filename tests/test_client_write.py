@@ -286,6 +286,35 @@ class TestCreateBitstream(unittest.TestCase):
             self.assertEqual(c.session.cookies["X-XSRF-Token"], "fresh-token")
 
 
+class TestCreateGroupAndUser(unittest.TestCase):
+
+    def test_failed_create_returns_none(self):
+        c = make_client()
+        cases = (
+            ("create_group", f"{API}/eperson/groups",
+             lambda: c.create_group({"name": "G"})),
+            ("create_user", f"{API}/eperson/epersons",
+             lambda: c.create_user({"email": "a@dspace.test"})),
+        )
+        for name, url, call in cases:
+            for status, kwargs in ((422, {"json": {"message": "Unprocessable"}}),
+                                   (500, {"text": "<html>boom</html>"})):
+                with self.subTest(name=name, status=status), \
+                        requests_mock.Mocker() as m:
+                    m.post(url, status_code=status, **kwargs)
+                    self.assertIsNone(call())
+
+    def test_created_returns_object_with_uuid(self):
+        c = make_client()
+        with requests_mock.Mocker() as m:
+            m.post(f"{API}/eperson/groups", status_code=201,
+                   json={"uuid": "g1", "name": "G", "type": "group"})
+            m.post(f"{API}/eperson/epersons", status_code=201,
+                   json={"uuid": "u1", "email": "a@dspace.test", "type": "eperson"})
+            self.assertEqual(c.create_group({"name": "G"}).uuid, "g1")
+            self.assertEqual(c.create_user({"email": "a@dspace.test"}).uuid, "u1")
+
+
 class TestCreateClarinAllowances(unittest.TestCase):
 
     def test_requires_metadata_payload(self):

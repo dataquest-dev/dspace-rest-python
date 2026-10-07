@@ -62,6 +62,11 @@ if not any(isinstance(h, logging.NullHandler) for h in _logger.handlers):
     _logger.addHandler(logging.NullHandler())
 
 
+def _has_uuid(resource: Any) -> bool:
+    """A created resource has a uuid; an error body (or no body) does not."""
+    return isinstance(resource, dict) and bool(resource.get('uuid'))
+
+
 def parse_json(response) -> Any:
     """
     Simple static method to handle ValueError if JSON is invalid in response body
@@ -655,6 +660,18 @@ class DSpaceClient:
                 f'[{url}]')
         return resources
 
+    def _raise_unless_single_404(self, what: str, url: str, single: bool) -> None:
+        """
+        After a failed fetch_resource: return for a single-object lookup that
+        404s (the caller returns None), raise RuntimeError (HTTP status + url)
+        for anything else - a paging caller reads an empty or None page as the
+        end of the list.
+        """
+        status = getattr(self._last_err, 'status_code', None)
+        if single and status == 404:
+            return
+        raise RuntimeError(f'Failed to fetch {what}: HTTP {status} [{url}]')
+
     def get_resourcepolicy(self, uuid: str,
                            action: Optional[str] = 'READ') -> Optional[list]:
         """
@@ -1024,7 +1041,8 @@ class DSpaceClient:
         @param page:    integer page (default: 0)
         @param size:    integer size (default: 20)
         @param top:     whether to restrict search to top communities (default: false)
-        @return:        list of communities, or None if error
+        @return:        list of communities; None if the single `uuid` is not found (404)
+        @raise RuntimeError: any other failed or non-JSON response
         """
         url = f'{self.API_ENDPOINT}/core/communities'
         params: dict[str, Any] = {}
@@ -1048,13 +1066,12 @@ class DSpaceClient:
             url = f'{url}/search/top'
 
         _logger.debug(f'Performing get on {url}')
-        # Perform actual get
+        # Perform actual get; a non-JSON 200 does not set _last_err, so clear a
+        # stale 404 first
+        self._last_err = None
         r_json = self.fetch_resource(url, request_params)
         if r_json is None:
-            # a failed / non-JSON response is an error, not "no communities" -
-            # returning None here matches the documented contract instead of
-            # raising an opaque TypeError on the membership test below.
-            _logger.error(f'Failed to fetch communities [{url}]')
+            self._raise_unless_single_404('communities', url, uuid is not None)
             return None
         # Empty list
         communities = []
@@ -1091,8 +1108,9 @@ class DSpaceClient:
         @param community:   Community object. If present (and no uuid present), collections for a community
         @param page:        Integer for page / offset of results. Default: 0
         @param size:        Integer for page size. Default: 20 (same as REST API default)
-        @return:            list of Collection objects, or None if there was an error
+        @return:            list of Collection objects, or None if the single `uuid` is not found (404)
                             for consistency of handling results, even the uuid search will be a list of one
+        @raise RuntimeError: any other failed or non-JSON response
         """
         url = f'{self.API_ENDPOINT}/core/collections'
         params: dict[str, Any] = {}
@@ -1118,11 +1136,10 @@ class DSpaceClient:
                 url = community.links['collections']['href']
 
         # Perform the actual request. By now, our URL and parameter should be properly set
+        self._last_err = None
         r_json = self.fetch_resource(url, params=request_params)
         if r_json is None:
-            # see get_communities: an error is reported as None, not as an
-            # empty result or a TypeError.
-            _logger.error(f'Failed to fetch collections [{url}]')
+            self._raise_unless_single_404('collections', url, uuid is not None)
             return None
         # Empty list
         collections = []
@@ -1224,7 +1241,8 @@ class DSpaceClient:
         url = f'{self.API_ENDPOINT}/core/items/{item_uuid}/owningCollection'
         try:
             r = self.api_get(url, None, None)
-            self.verify_response(r, f"item:{item_uuid}", True)
+            if not self.verify_response(r, f"item:{item_uuid}", True):
+                return None
             r_json = parse_json(response=r)
             return Collection(r_json)
         except ValueError:
@@ -1323,12 +1341,12 @@ class DSpaceClient:
                            path=path, value=None)
         return dso_type(api_resource=parse_json(r))
 
-    def create_user(self, user, token=None) -> User:
+    def create_user(self, user, token=None) -> Optional[User]:
         """
         Create a user
         @param user:    python User object or Python dict containing all the data and links expected by the REST API
         :param token:   Token if creating new user (optional) from the link in a registration email
-        @return:        User object constructed from the API response
+        @return:        User object constructed from the API response, None on failure
         """
         url = f'{self.API_ENDPOINT}/eperson/epersons'
         data = user
@@ -1339,7 +1357,10 @@ class DSpaceClient:
         params = None
         if token is not None:
             params = {'token': token}
-        return User(api_resource=parse_json(self.create_dso(url, params=params, data=data)))
+        created = parse_json(self.create_dso(url, params=params, data=data))
+        if not _has_uuid(created):
+            return None
+        return User(api_resource=created)
 
     def delete_user(self, user):
         if not isinstance(user, User):
@@ -1366,11 +1387,11 @@ class DSpaceClient:
                     users.append(User(user_resource))
         return users
 
-    def create_group(self, group) -> Group:
+    def create_group(self, group) -> Optional[Group]:
         """
         Create a group
         @param group:    python Group object or Python dict containing all the data and links expected by the REST API
-        @return:         User object constructed from the API response
+        @return:         Group object constructed from the API response, None on failure
         """
         url = f'{self.API_ENDPOINT}/eperson/groups'
         data = group
@@ -1378,7 +1399,10 @@ class DSpaceClient:
             data = group.as_dict()
             # TODO: Validation. Note, at least here I will just allow a dict instead of the pointless cast<->cast
             # that you see for other DSO types - still figuring out the best way
-        return Group(api_resource=parse_json(self.create_dso(url, params=None, data=data)))
+        created = parse_json(self.create_dso(url, params=None, data=data))
+        if not _has_uuid(created):
+            return None
+        return Group(api_resource=created)
 
     def create_submit_group(self, collection) -> Optional[Group]:
         """
@@ -1614,6 +1638,9 @@ class DSpaceClient:
         try:
             response = self.api_get(url, params=params)
             user_data = parse_json(response)
+            # an unknown email is a 204 with no body
+            if not user_data:
+                return None
             return User(user_data)
         except Exception as e:  # pylint: disable=broad-exception-caught
             _logger.error(f"Error retrieving user by email {email}: {e}")
