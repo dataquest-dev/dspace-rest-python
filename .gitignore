@@ -1,6 +1,10 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
+build/
+dist/
+.pytest_cache/
 .python-version
 Pipfile.lock
 __pypackages__/
@@ -9,3 +13,5 @@ __pypackages__/
 env/
 venv/
 .idea/
+.coverage
+coverage.xml

@@ -1,0 +1,9 @@
+# Test-only dependencies for the dspace_rest_client suite.
+# The test runner and an HTTP transport mock so tests never touch a real DSpace
+# server. `requests` is listed explicitly so `pip install -r requirements-test.txt`
+# alone is enough to import the package (CI also `pip install .`s it via setup.py).
+pytest>=7.0
+requests-mock>=1.11
+requests
+# coverage floor is enforced in CI (tests.yml :: test job, --cov-fail-under)
+pytest-cov>=4.0
