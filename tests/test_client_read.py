@@ -192,6 +192,21 @@ class TestGetBundles(unittest.TestCase):
             self.assertIn("collected 2 of 3", msg)
             self.assertIn(url, msg)
 
+    def test_server_ignoring_the_page_param_raises(self):
+        # page 0 sent twice: 2 + 2 matches totalElements 4, but the list would
+        # hold duplicates and miss the real second page
+        c = make_client()
+        parent = Item(item_json(ITEM_UUID))
+        url = f"{API}/core/items/{ITEM_UUID}/bundles"
+        with requests_mock.Mocker() as m:
+            m.get(url, json=paged("bundles", [bundle_json("b1"), bundle_json("b2")],
+                                  number=0, size=2, total_elements=4))
+            with self.assertRaises(RuntimeError) as ctx:
+                c.get_bundles(parent=parent, size=2)
+            msg = str(ctx.exception)
+            self.assertIn("asked for page 1, got page 0", msg)
+            self.assertIn(url, msg)
+
     def test_error_on_later_page_raises_not_partial_list(self):
         c = make_client()
         parent = Item(item_json(ITEM_UUID))

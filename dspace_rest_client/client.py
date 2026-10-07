@@ -572,6 +572,13 @@ class DSpaceClient:
                 status = getattr(self._last_err, 'status_code', None)
                 raise RuntimeError(
                     f'Failed to fetch {what} page {number}: HTTP {status} [{url}]')
+            # a server ignoring `page` repeats an earlier page: the count could
+            # still match totalElements while the real page is missing
+            got = (r_json.get('page') or {}).get('number')
+            if got is not None and got != number:
+                raise RuntimeError(
+                    f'Inconsistent {what}: asked for page {number}, got page {got} '
+                    f'[{url}]')
             resources.extend((r_json.get('_embedded') or {}).get(key) or [])
         total = page.get('totalElements')
         if total is None:
