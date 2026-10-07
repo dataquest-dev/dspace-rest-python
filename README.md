@@ -10,7 +10,7 @@ Help with extending the scope and improving the code is always welcome!
 PyPI homepage: https://pypi.org/project/dspace-rest-client/
 
 ## Requirements
-* Python 3.10+
+* Python 3.8+
 * Python Requests module (installed automatically; declared in `pyproject.toml`)
 * Working DSpace 7 repository with an accessible REST API
 
