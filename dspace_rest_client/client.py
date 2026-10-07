@@ -1165,12 +1165,19 @@ class DSpaceClient:
         url = f'{self.API_ENDPOINT}/core/items/{item_uuid}/owningCollection'
         try:
             r = self.api_get(url, None, None)
-            self.verify_response(r, f"item:{item_uuid}",  True)
-            r_json = parse_json(response=r)
-            return Collection(r_json)
-        except ValueError:
-            _logger.error(f'Invalid owningCollection for UUID: {item_uuid}')
+        except requests.RequestException as e:
+            # one timeout must not abort a caller's prefetch loop; there is no
+            # response to record, so last_err stays None
+            _logger.error(f'Error fetching owningCollection [item:{item_uuid}]: {e}')
             return None
+        # Return None (not an empty, truthy Collection) with last_err set, so the
+        # caller's `owning_col is None and last_err.status_code == 401` reauth
+        # path (src/repo/_audit.py) fires. verify_response records last_err only
+        # for a non-200, so an unparseable 200 is recorded here.
+        if not self.verify_response(r, f"item:{item_uuid}", True):
+            self._last_err = r
+            return None
+        return Collection(parse_json(response=r))
 
     def create_item(self, parent, item):
         """
@@ -1278,7 +1285,11 @@ class DSpaceClient:
         params = None
         if token is not None:
             params = {'token': token}
-        return User(api_resource=parse_json(self.create_dso(url, params=params, data=data)))
+        r_json = parse_json(self.create_dso(url, params=params, data=data))
+        # User(None) / User(error body) would be truthy and uuid-less
+        if not r_json or not r_json.get('uuid'):
+            return None
+        return User(api_resource=r_json)
 
     def delete_user(self, user):
         if not isinstance(user, User):
@@ -1317,7 +1328,11 @@ class DSpaceClient:
             data = group.as_dict()
             # TODO: Validation. Note, at least here I will just allow a dict instead of the pointless cast<->cast
             # that you see for other DSO types - still figuring out the best way
-        return Group(api_resource=parse_json(self.create_dso(url, params=None, data=data)))
+        r_json = parse_json(self.create_dso(url, params=None, data=data))
+        # Group(None) / Group(error body) would be truthy and uuid-less
+        if not r_json or not r_json.get('uuid'):
+            return None
+        return Group(api_resource=r_json)
 
     def create_submit_group(self, collection):
         """
@@ -1326,7 +1341,12 @@ class DSpaceClient:
         url = f'{self.API_ENDPOINT}/core/collections/{collection.uuid}/submittersGroup'
         r = self.api_post(url, json={}, params=None)
         if r.status_code == 201:
-            return Group(parse_json(r))
+            # a 201 with an empty/invalid body would make Group(None) here; return
+            # None instead so a caller's `if not group` guard fires cleanly rather
+            # than passing a uuid-less Group into add_member()
+            j = parse_json(r)
+            if j and j.get('uuid'):
+                return Group(j)
         return None
 
     def add_member(self, group, eperson):
@@ -1349,7 +1369,9 @@ class DSpaceClient:
             return False
 
         url = f'{self.API_ENDPOINT}/eperson/groups/{group.uuid}/epersons'
-        eperson_uri = f'{self.API_ENDPOINT}/epersons/{eperson.uuid}'
+        # canonical eperson href; DSpace resolves the uri-list by its trailing
+        # UUID only, so the former bare /epersons/{uuid} worked too
+        eperson_uri = f'{self.API_ENDPOINT}/eperson/epersons/{eperson.uuid}'
         r = self.api_post_uri(url, params=None, uri_list=eperson_uri)
         if r.status_code == 204:
             return True
@@ -1417,8 +1439,11 @@ class DSpaceClient:
         url = f'{self.API_ENDPOINT}/discover/search/objects?sort=dc.date.accessioned,DESC&page={page}&size={size}&scope={collection_id}&dsoType=ITEM&embed=thumbnail'
 
         items = list()
-        r = self.api_get(url)
-        r_json = parse_json(r)
+        r_json = self.fetch_resource(url)
+        # [] is the callers' end-of-collection signal: a failed page must be
+        # None (with last_err on a non-200) or their paging loop silently stops
+        if r_json is None:
+            return None
         if '_embedded' in r_json:
             if 'searchResult' in r_json['_embedded']:
                 if '_embedded' in r_json['_embedded']['searchResult']:
@@ -1436,7 +1461,9 @@ class DSpaceClient:
         """
         url = f'{self.API_ENDPOINT}/core/items/{item_uuid}/bundles'
         r_json = self.fetch_resource(url, params=None)
-        if '_embedded' in r_json:
+        # fetch_resource returns None on any non-200 (records self._last_err);
+        # guard so a failed lookup is a clean None, not a NoneType subscript crash
+        if r_json and '_embedded' in r_json:
             if 'bundles' in r_json['_embedded']:
                 for bundle in r_json['_embedded']['bundles']:
                     if bundle['name'] == name:
@@ -1449,10 +1476,20 @@ class DSpaceClient:
         """
         url = f'{self.API_ENDPOINT}/authz/resourcepolicies/search/resource?uuid={bundle_uuid}&embed=eperson&embed=group'
         r = self.api_get(url)
+        # record the failing response so a caller can tell an HTTP error apart
+        # from a genuine "no policy" (empty list) result - both return None
+        if r.status_code != 200:
+            self._last_err = r
+            _logger.error(f'Error fetching resource policy [{bundle_uuid}]: {r.status_code}')
+            return None
         r_json = parse_json(r)
-        if '_embedded' in r_json:
-            if 'resourcepolicies' in r_json['_embedded']:
-                return r_json['_embedded']['resourcepolicies'][0]
+        # guard against an unparseable body and against an empty policy list -
+        # both are a clean None, not a TypeError/IndexError
+        if r_json and '_embedded' in r_json and 'resourcepolicies' in r_json['_embedded']:
+            policies = r_json['_embedded']['resourcepolicies']
+            if policies:
+                return policies[0]
+        return None
 
     def create_resource_policy(self, resource_uuid, data, group_uuid=None, eperson_uuid=None):
         """
@@ -1542,10 +1579,18 @@ class DSpaceClient:
         """
         url = f'{self.API_ENDPOINT}/eperson/epersons/search/byEmail'
         params = {'email': email}
-        try:
-            response = self.api_get(url, params=params)
-            user_data = parse_json(response)
-            return User(user_data)
-        except Exception as e:
-            _logger.error(f"Error retrieving user by email {email}: {e}")
+        # a transport error (eg. a timeout) propagates: returning None would
+        # make it indistinguishable from "no such user"
+        response = self.api_get(url, params=params)
+        # DSpace answers an unknown email with 204 No Content: a clean miss
+        if response.status_code == 204:
             return None
+        # anything else that is not a user (404 = misconfigured endpoint,
+        # 401/403/5xx, an unparseable or uuid-less body) is an error: None, but
+        # logged and kept in last_err. The raw email is never logged.
+        user_data = parse_json(response) if response.status_code == 200 else None
+        if not user_data or not user_data.get('uuid'):
+            self._last_err = response
+            _logger.error(f"Error retrieving user by email: HTTP {response.status_code}")
+            return None
+        return User(user_data)
