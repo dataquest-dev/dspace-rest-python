@@ -15,7 +15,7 @@ import _helpers  # noqa: F401
 from _helpers import (
     make_client, sent_params, item_json, embedded,
     API, ITEM_UUID, BITSTREAM_UUID, COLLECTION_UUID, EPERSON_UUID, GROUP_UUID)
-from dspace_rest_client.models import Group, User, Collection, Item
+from dspace_rest_client.models import Group, User, Collection, Item, DSpaceObject
 
 pytestmark = pytest.mark.clarin
 
@@ -155,6 +155,22 @@ class TestAddMember(unittest.TestCase):
     def _user(self):
         return User({"uuid": EPERSON_UUID, "email": "a@b.c"})
 
+    def test_posts_eperson_uri_list_and_returns_true_on_204(self):
+        # DSpace resolves the posted eperson by its trailing UUID only, so the
+        # shared contract is: one absolute URI under the API whose last
+        # segment is the eperson's uuid, sent as text/uri-list.
+        c = make_client()
+        url = f"{API}/eperson/groups/{GROUP_UUID}/epersons"
+        with requests_mock.Mocker() as m:
+            m.post(url, status_code=204)
+            self.assertTrue(c.add_member(self._group(), self._user()))
+            req = m.last_request
+            self.assertEqual(req.headers["Content-Type"], "text/uri-list")
+            uris = req.text.splitlines()
+            self.assertEqual(len(uris), 1)
+            self.assertTrue(uris[0].startswith(f"{API}/"))
+            self.assertTrue(uris[0].endswith(f"/epersons/{EPERSON_UUID}"))
+
     def test_non_204_returns_false(self):
         c = make_client()
         url = f"{API}/eperson/groups/{GROUP_UUID}/epersons"
@@ -203,10 +219,13 @@ class TestRemoveMetadata(unittest.TestCase):
             body = m.last_request.json()
             self.assertEqual(body[0]["path"], "/metadata/dc.title")
 
-    def test_invalid_dso_returns_self_without_request(self):
+    def test_invalid_dso_sends_no_request_and_returns_no_dso(self):
+        # Only the consumer-visible contract: nothing is PATCHed and no DSO comes
+        # back. The exact sentinel (the client itself vs None) is not pinned.
         c = make_client()
         with requests_mock.Mocker() as m:
-            self.assertIs(c.remove_metadata(None, "dc.title", 0), c)
+            result = c.remove_metadata(None, "dc.title", 0)
+            self.assertNotIsInstance(result, DSpaceObject)
             self.assertFalse(m.called)
 
 

@@ -141,6 +141,8 @@ jobs:
           token: ${{ secrets.CONSUMER_READ_TOKEN }}
           submodules: recursive
           path: consumer
+          # the smoke step runs PR code; do not leave the token in .git/config
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v6
