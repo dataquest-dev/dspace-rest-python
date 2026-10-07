@@ -32,14 +32,23 @@ from .models import (
     Collection,
     Community,
     DSpaceObject,
+    ExternalDataObject,
     Group,
+    HALResource,
     Item,
     ResourcePolicy,
     SimpleDSpaceObject,
     User,
 )
 
-__all__ = ['DSpaceClient']
+# the models are re-exported: `from .models import *` used to make them
+# importable from here, and callers rely on it
+__all__ = ['DSpaceClient', 'Bitstream', 'Bundle', 'Collection', 'Community',
+           'DSpaceObject', 'ExternalDataObject', 'Group', 'HALResource', 'Item',
+           'ResourcePolicy', 'SimpleDSpaceObject', 'User']
+
+# default of DSpaceClient(proxies=...): use PROXY_DICT; distinct from None
+_PROXY_DICT_DEFAULT: Any = object()
 
 # cap on the response body echoed into an error log line
 _ERR_BODY_MAX = 500
@@ -129,7 +138,8 @@ class DSpaceClient:
     def __init__(self, api_endpoint: str = API_ENDPOINT, username: str = USERNAME,
                  password: str = PASSWORD, solr_endpoint: str = SOLR_ENDPOINT,
                  solr_auth=SOLR_AUTH, fake_user_agent: bool = False,
-                 proxies: Optional[dict] = None, timeout: Optional[int] = None) -> None:
+                 proxies: Any = _PROXY_DICT_DEFAULT,
+                 timeout: Optional[int] = None) -> None:
         """
         Accept optional API endpoint, username, password arguments using the OS environment variables as defaults
         :param api_endpoint:    base path to DSpace REST API, eg. http://localhost:8080/server/api
@@ -146,8 +156,10 @@ class DSpaceClient:
         self.PASSWORD = password
         self.SOLR_ENDPOINT = solr_endpoint
         # Copy the class-level default so per-instance mutation of `proxies`
-        # never leaks into other default-constructed clients.
-        self.proxies = proxies if proxies is not None else dict(self.PROXY_DICT)
+        # never leaks into other default-constructed clients. An explicit None
+        # is kept: requests then resolves proxies itself.
+        self.proxies = (dict(self.PROXY_DICT) if proxies is _PROXY_DICT_DEFAULT
+                        else proxies)
         self.solr = None
         self._last_err = None
         self.timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT
